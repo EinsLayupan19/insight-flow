@@ -1,14 +1,12 @@
+import { AnalysisResults } from './components/AnalysisResults'
 import { BackendStatus } from './components/BackendStatus'
-
-// Planned capabilities, shown as a roadmap only. No analytics data exists yet.
-const ROADMAP = [
-  { title: 'Data import & quality checks', detail: 'Upload retail CSV files and validate them before analysis.' },
-  { title: 'Profitability analysis', detail: 'Margins, revenue, and KPIs calculated with DuckDB.' },
-  { title: 'Change investigations', detail: 'Explain what changed between periods, backed by evidence.' },
-  { title: 'Ask in plain English', detail: 'Natural-language questions answered with verifiable SQL.' },
-]
+import { UploadPanel } from './components/UploadPanel'
+import { WorkflowGuide } from './components/WorkflowGuide'
+import { useCsvAnalysis } from './hooks/useCsvAnalysis'
 
 function App() {
+  const csv = useCsvAnalysis()
+
   return (
     <div className="app">
       <header className="app-header">
@@ -21,34 +19,43 @@ function App() {
 
       <main className="content">
         <section className="intro">
-          <h1>Welcome to InsightFlow AI</h1>
+          <h1>Retail CSV analysis</h1>
           <p>
-            Import retail data, check its quality, and investigate profitability with answers you can verify.
+            Upload a sales file to check its data quality and see the retail metrics its columns support. Every number
+            shows how it was calculated.
           </p>
         </section>
 
-        <BackendStatus />
+        {/* Source order: upload, results, sidebar. CSS moves the sidebar beside the upload card on wide screens. */}
+        <div className="workspace">
+          <UploadPanel
+            selection={csv.selection}
+            analysis={csv.analysis}
+            onSelectFiles={csv.selectFiles}
+            onClearSelection={csv.clearSelection}
+            onAnalyze={(file) => void csv.analyze(file)}
+            onRetry={csv.retryAnalysis}
+            onCancel={csv.clearResults}
+          />
 
-        <section className="card" aria-labelledby="roadmap-heading">
-          <div className="card-header">
-            <h2 id="roadmap-heading">Getting started</h2>
-          </div>
-          <p className="empty-state">No data has been imported yet. Data upload arrives in the next phase.</p>
-          <ul className="roadmap">
-            {ROADMAP.map((item) => (
-              <li key={item.title}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <span className="badge">Planned</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          {csv.analysis && (
+            <AnalysisResults
+              analysis={csv.analysis}
+              onRetryProfile={csv.retryProfile}
+              onRetryMetrics={csv.retryMetrics}
+              onApplyMapping={csv.applyMapping}
+              onClear={csv.clearResults}
+            />
+          )}
+
+          <aside className="sidebar" aria-label="About this tool">
+            <WorkflowGuide />
+            <BackendStatus />
+          </aside>
+        </div>
       </main>
 
-      <footer className="app-footer">Phase 1 · Project foundation</footer>
+      <footer className="app-footer">InsightFlow AI · Files are analyzed in memory and not stored</footer>
     </div>
   )
 }

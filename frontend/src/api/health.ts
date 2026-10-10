@@ -1,6 +1,8 @@
 // Talks to the backend health endpoint. All calls go through `/api`,
 // which the Vite dev server forwards to FastAPI (see vite.config.ts).
 
+import { GATEWAY_ERRORS, START_BACKEND_HINT } from './http'
+
 export type HealthResponse = {
   status: 'ok'
   app_name: string
@@ -10,9 +12,6 @@ export type HealthResponse = {
 
 const HEALTH_URL = '/api/health'
 const TIMEOUT_MS = 5000
-const GATEWAY_ERRORS = [502, 503, 504]
-const START_BACKEND_HINT =
-  'Make sure the FastAPI server is running on port 8000 (see "Start the backend" in the README).'
 
 export async function fetchHealth(): Promise<HealthResponse> {
   let response: Response
@@ -22,7 +21,6 @@ export async function fetchHealth(): Promise<HealthResponse> {
     throw new Error(`Could not reach the backend. ${START_BACKEND_HINT}`, { cause: error })
   }
 
-  // 502/503/504 come from the Vite proxy when nothing is listening on port 8000.
   if (GATEWAY_ERRORS.includes(response.status)) {
     throw new Error(`Could not reach the backend (HTTP ${response.status}). ${START_BACKEND_HINT}`)
   }

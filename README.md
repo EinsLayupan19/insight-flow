@@ -2,7 +2,7 @@
 
 An evidence-first retail analytics platform. Analysts will import retail data, validate its quality, analyze profitability, investigate business changes, and ask natural-language questions answered with verifiable SQL results.
 
-> **Current status: Phase 2 in progress — CSV ingestion and first analytics.** The backend can accept a CSV upload, validate it, produce a read-only data-quality profile, and calculate basic retail metrics with DuckDB. Files are not stored yet, and there is no upload screen in the UI yet. Profit is intentionally not calculated yet (see below).
+> **Current status: Phase 2 in progress — CSV ingestion and first analytics.** In the browser you can upload a CSV, see why it was rejected (if it was), review a read-only data-quality report, and see the basic retail metrics its columns support, calculated with DuckDB. Files are not stored, and profit is intentionally not calculated yet (see [Known limitations](#known-limitations)).
 
 ## Tech stack
 
@@ -12,7 +12,7 @@ An evidence-first retail analytics platform. Analysts will import retail data, v
 | Backend   | Python, FastAPI, Pydantic Settings             |
 | Analytics | DuckDB (in-memory SQL)                         |
 | AI        | Google Gemini behind a provider interface *(later phase)* |
-| Testing   | Pytest (backend); oxlint + TypeScript build (frontend) |
+| Testing   | Pytest (backend); Vitest, oxlint, and the TypeScript build (frontend) |
 
 ## Prerequisites (Windows)
 
@@ -76,6 +76,30 @@ npm run dev
 Open **<http://localhost:5180>**. The **System status** card should show a green dot and **Connected**.
 
 Stop either server with `Ctrl + C`.
+
+## Using the app
+
+1. **Choose a CSV file.** Drag it onto the upload area, or click **Choose a CSV file**. The browser checks the obvious things first (one file, a `.csv` name, not empty) and warns if the file is over the server's default 10 MB limit.
+2. **Click Analyze file.** The server validates the file's structure. If it is rejected, the server's reason is shown (for example "Line 3 has 1 values, but the header has 2 columns.") with **Try again** and **Choose a different file**.
+3. **Review data quality.** Summary tiles (rows, columns, duplicate rows, missing values, type mismatches), the duplicate rows with their line numbers, and a table with each column's inferred type, missing values, mismatched values (with line numbers), and status. The exact definition of every check is under **How these checks are defined**.
+4. **Review retail metrics.** Each metric card shows its value, the API's definition, the columns used, how many rows were included and excluded, and any notes. Metrics the file can't support are marked **Unavailable**, with the reason from the API.
+5. **Map columns (optional).** If your columns are named differently (for example `Qty` instead of `quantity`), open **Map columns**, pick a column for each role, and click **Apply mapping**. Each column can fill only one role.
+6. **Analyze another file** or **Clear results** to start over. Results stay on the page until then. They live only in the browser tab's memory and disappear on reload.
+
+Sample files to try are in `backend/tests/fixtures/`: `sample_sales.csv` (clean), `messy_sales.csv` (missing values, a duplicate row, `N/A`, an impossible date), `numeric_edge_cases.csv`, `order_lines.csv`, and `no_sales_columns.csv`.
+
+**Endpoints the UI calls** (through the Vite proxy, so the browser only talks to `localhost:5180`):
+
+| Step | Request |
+| --- | --- |
+| Backend status card | `GET /api/health` |
+| Validate | `POST /api/uploads/csv` with the file in the form field `file` |
+| Data quality | `POST /api/uploads/csv/profile` with the same file |
+| Retail metrics | `POST /api/uploads/csv/metrics` with the same file, plus `order_id_column`, `quantity_column`, `unit_price_column`, `revenue_column` only for roles you mapped |
+
+Data quality and retail metrics run in parallel after validation succeeds, and each can fail and be retried on its own.
+
+**How metrics are labelled.** When revenue is calculated as quantity × unit price, it is labelled **Gross sales** (before discounts, returns, or refunds). When the file has a `revenue` column, it is labelled **Revenue (as recorded)**, because whether it includes discounts or refunds depends on how the file was made. Amounts have no currency symbol, because the file doesn't say which currency it uses. Values are rounded to 2 decimals for display, and the exact value is shown whenever rounding hides digits.
 
 ## Try the CSV upload endpoint
 
@@ -155,12 +179,25 @@ cd backend
 python -m pytest -v
 cd ..
 
-# Frontend lint + type check + production build
+# Frontend unit tests, lint, and type check + production build
 cd frontend
+npm test
 npm run lint
 npm run build
 cd ..
 ```
+
+The frontend tests (Vitest) cover the API client against a mocked `fetch` (URLs, form field names, error messages), column-mapping rules, file checks, number formatting, and metric labels. They run in Node and don't need the backend.
+
+## Known limitations
+
+- **No file storage.** Uploads are analyzed in memory and discarded. Each analysis step uploads the file again (3 requests), and results disappear when the page is reloaded.
+- **No profit, margin, or net revenue.** These need cost data and agreed definitions for returns and refunds.
+- **No upload progress bar.** The browser's `fetch` API can't report upload progress, so the page shows the real state of each step (waiting, in progress, done, failed) instead of a percentage.
+- **The size warning uses the default limit.** The browser warns above 10 MB (the backend's default `MAX_UPLOAD_MB`). If you change `MAX_UPLOAD_MB`, the server's answer is still the one that counts.
+- **CSV format.** Only comma-separated, UTF-8 files with a header row. Dates must be `YYYY-MM-DD` to count as dates.
+- **Column mapping can't switch a role off.** A column named exactly like a role (for example `revenue`) is always used for that role.
+- **Large files take a few seconds.** For a file near 10 MB, the data-quality and metrics steps each took about 4 seconds on the development laptop.
 
 ## Troubleshooting
 
@@ -197,12 +234,16 @@ Insightflow/
 │  └─ .env.example
 ├─ frontend/
 │  ├─ src/
-│  │  ├─ api/health.ts                # Calls the backend, turns failures into clear messages
+│  │  ├─ api/http.ts                  # Shared error handling: turns failures into clear messages
+│  │  ├─ api/health.ts                # GET /api/health
+│  │  ├─ api/uploads.ts               # The three upload endpoints + response types
+│  │  ├─ lib/                         # Pure logic: column mapping, file checks, formatting, metric labels
 │  │  ├─ hooks/useBackendStatus.ts    # Tracks checking / connected / error state
-│  │  ├─ components/BackendStatus.tsx # Displays the status card
+│  │  ├─ hooks/useCsvAnalysis.ts      # The upload → validate → profile + metrics workflow
+│  │  ├─ components/                  # Upload panel, quality report, metric cards, column mapping, status card
 │  │  ├─ App.tsx                      # Page layout
 │  │  └─ index.css                    # Design tokens and styles
-│  └─ vite.config.ts                  # Dev server port + /api proxy to the backend
+│  └─ vite.config.ts                  # Dev server port + /api proxy to the backend (Vitest uses it too)
 ├─ docs/INTERVIEW_NOTES.md
 └─ README.md
 ```
@@ -219,12 +260,13 @@ Separation of responsibilities:
 - `backend/app/api/` — thin HTTP routes only (validate input, call a module, return the result)
 - `backend/app/ingestion/` — reading, validating, and profiling uploaded files
 - `backend/app/analytics/` — DuckDB loading and retail metric SQL, testable without HTTP. Column names from uploaded files never appear in SQL: each column gets a generated identifier (`c0`, `c1`, …), and values are passed as query parameters.
-- `backend/app/ai/` — AI provider interface, so Gemini can be swapped or mocked in tests
+- `frontend/src/` — displays what the API returns and never recalculates metrics. It only adds up the per-column counts for the summary tiles. The backend stays authoritative for every validation rule.
+- `backend/app/ai/` — *(planned, not built yet)* an AI provider interface, so Gemini can be swapped or mocked in tests
 
 ## Roadmap
 
 1. ✅ Project foundation
-2. 🔄 CSV import and data-quality validation (upload, structure check, and quality profile done)
-3. 🔄 Retail KPIs (quantity, revenue, orders, AOV done) and profitability analysis
+2. 🔄 CSV import and data-quality validation (upload UI, structure check, and quality report done; storage not started)
+3. 🔄 Retail KPIs (quantity, gross sales/revenue, orders, AOV done, with dashboard) and profitability analysis (not started)
 4. Evidence-backed change investigations
 5. Natural-language questions answered with verifiable SQL
