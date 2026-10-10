@@ -1,0 +1,6 @@
+order_id,order_date,store,product,quantity,unit_price,unit_cost
+1001,2026-01-05,North,"Coffee Beans, 1kg",2,18.50,11.20
+1002,2026-01-05,South,Green Tea,5,4.25,2.10
+1003,2026-01-06,North,Ceramic Mug,1,12.00,5.75
+1004,2026-01-07,East,"Coffee Beans, 1kg",3,18.50,11.20
+1005,2026-01-07,South,Oat Milk,4,3.80,2.40

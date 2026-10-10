@@ -1,0 +1,11 @@
+# Web API
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+python-multipart>=0.0.20,<1.0  # required by FastAPI to receive file uploads
+
+# Settings loaded from environment variables / .env
+pydantic-settings>=2.6,<3.0
+
+# Testing (pytest runs tests; httpx2 powers FastAPI's TestClient)
+pytest>=8.3,<10.0
+httpx2>=2.13,<3.0
