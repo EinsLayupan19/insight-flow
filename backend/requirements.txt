@@ -3,6 +3,9 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.32,<1.0
 python-multipart>=0.0.20,<1.0  # required by FastAPI to receive file uploads
 
+# Analytics: in-memory SQL engine for retail metrics
+duckdb>=1.5,<2.0
+
 # Settings loaded from environment variables / .env
 pydantic-settings>=2.6,<3.0
 

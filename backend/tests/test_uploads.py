@@ -140,3 +140,57 @@ def test_profile_uses_same_request_checks_as_upload() -> None:
 
     assert client.post(PROFILE_URL).status_code == 400
     assert upload(client, "sales.xlsx", b"PK\x03\x04", url=PROFILE_URL).status_code == 415
+
+
+# ---------- POST /api/uploads/csv/metrics ----------
+
+METRICS_URL = "/api/uploads/csv/metrics"
+
+
+def post_metrics(client: TestClient, filename: str, content: bytes, **form: str):
+    return client.post(METRICS_URL, files={"file": (filename, content, "text/csv")}, data=form)
+
+
+def test_metrics_for_sample_file() -> None:
+    response = post_metrics(make_client(), "sample_sales.csv", SAMPLE_CSV.read_bytes())
+
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["total_revenue"]["status"] == "calculated"
+    assert metrics["total_revenue"]["value"] == 140.95
+    assert metrics["average_order_value"]["value"] == 28.19
+    assert metrics["columns_used"]["revenue"] is None
+
+
+def test_metrics_accept_column_mapping_form_fields() -> None:
+    content = b"OrderNo,Qty,Price\nX1,2,3.00\nX2,1,4.00\n"
+
+    response = post_metrics(make_client(), "renamed.csv", content, order_id_column="OrderNo", quantity_column="Qty", unit_price_column="Price")
+
+    assert response.status_code == 200
+    assert response.json()["metrics"]["average_order_value"]["value"] == 5.0
+
+
+def test_metrics_report_unavailable_when_columns_are_missing() -> None:
+    response = post_metrics(make_client(), "no_sales_columns.csv", (FIXTURES / "no_sales_columns.csv").read_bytes())
+
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["row_count"]["value"] == 2
+    assert metrics["total_revenue"]["status"] == "unavailable"
+    assert metrics["total_revenue"]["value"] is None
+
+
+def test_metrics_with_unknown_mapped_column_returns_422() -> None:
+    response = post_metrics(make_client(), "sample_sales.csv", SAMPLE_CSV.read_bytes(), quantity_column="Qty")
+
+    assert response.status_code == 422
+    assert "quantity_column is 'Qty'" in response.json()["detail"]
+
+
+def test_metrics_use_same_request_and_content_checks() -> None:
+    client = make_client()
+
+    assert client.post(METRICS_URL).status_code == 400
+    assert post_metrics(client, "sales.xlsx", b"PK\x03\x04").status_code == 415
+    assert post_metrics(client, "empty.csv", b"store,revenue\n").status_code == 422
