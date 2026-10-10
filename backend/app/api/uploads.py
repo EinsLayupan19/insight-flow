@@ -1,19 +1,25 @@
-"""CSV upload: checks the request, then hands the bytes to the ingestion module.
+"""CSV upload routes: check the request, then hand the bytes to the ingestion modules.
 
-The file is read into memory, summarized, and discarded. Nothing is saved yet.
+Files are read into memory, analyzed, and discarded. Nothing is saved yet.
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
-from app.ingestion.csv_parser import CsvValidationError, summarize_csv
+from app.ingestion.csv_parser import CsvValidationError, ParsedCsv, parse_csv
+from app.ingestion.profiler import QualityReport, profile_csv
 
 router = APIRouter(tags=["uploads"])
 
 BYTES_PER_MB = 1024 * 1024
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+# Optional so a missing file gets our clear 400 message instead of FastAPI's generic 422.
+CsvFile = Annotated[UploadFile | None, File(description="A .csv file with a header row.")]
 
 
 class CsvUploadResponse(BaseModel):
@@ -24,12 +30,38 @@ class CsvUploadResponse(BaseModel):
     columns: list[str]
 
 
+class CsvProfileResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    profile: QualityReport
+
+
 @router.post("/uploads/csv", response_model=CsvUploadResponse)
-async def upload_csv(
-    settings: Annotated[Settings, Depends(get_settings)],
-    # Optional here so a missing file gets our clear 400 message instead of FastAPI's generic 422.
-    file: Annotated[UploadFile | None, File(description="A .csv file with a header row.")] = None,
-) -> CsvUploadResponse:
+async def upload_csv(settings: SettingsDep, file: CsvFile = None) -> CsvUploadResponse:
+    filename, content = await _read_csv_upload(file, settings)
+    parsed = _parse_or_422(content)
+    return CsvUploadResponse(
+        filename=filename,
+        size_bytes=len(content),
+        row_count=len(parsed.rows),
+        column_count=len(parsed.columns),
+        columns=parsed.columns,
+    )
+
+
+@router.post("/uploads/csv/profile", response_model=CsvProfileResponse)
+async def profile_csv_upload(settings: SettingsDep, file: CsvFile = None) -> CsvProfileResponse:
+    """Report missing values, duplicate rows, and column types. The data is never modified."""
+    filename, content = await _read_csv_upload(file, settings)
+    parsed = _parse_or_422(content)
+    # Profiling a large file takes seconds of pure CPU work. Running it in a worker
+    # thread keeps the server responsive to other requests (like /api/health) meanwhile.
+    profile = await run_in_threadpool(profile_csv, parsed)
+    return CsvProfileResponse(filename=filename, size_bytes=len(content), profile=profile)
+
+
+async def _read_csv_upload(file: UploadFile | None, settings: Settings) -> tuple[str, bytes]:
+    """Check the request (file present, .csv name, size limit) and return the filename and bytes."""
     if file is None or not file.filename:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -51,16 +83,11 @@ async def upload_csv(
             status.HTTP_413_CONTENT_TOO_LARGE,
             f"The file is larger than the {settings.max_upload_mb} MB limit.",
         )
+    return file.filename, content
 
+
+def _parse_or_422(content: bytes) -> ParsedCsv:
     try:
-        summary = summarize_csv(content)
+        return parse_csv(content)
     except CsvValidationError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
-
-    return CsvUploadResponse(
-        filename=file.filename,
-        size_bytes=len(content),
-        row_count=summary.row_count,
-        column_count=len(summary.columns),
-        columns=summary.columns,
-    )

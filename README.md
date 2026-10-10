@@ -2,7 +2,7 @@
 
 An evidence-first retail analytics platform. Analysts will import retail data, validate its quality, analyze profitability, investigate business changes, and ask natural-language questions answered with verifiable SQL results.
 
-> **Current status: Phase 2 in progress — CSV ingestion.** The backend can accept a CSV upload, validate it, and report its row count and columns. Files are not stored yet, and there is no upload screen in the UI yet. No analytics features exist yet.
+> **Current status: Phase 2 in progress — CSV ingestion.** The backend can accept a CSV upload, validate it, report its row count and columns, and produce a read-only data-quality profile. Files are not stored yet, and there is no upload screen in the UI yet. No analytics features exist yet.
 
 ## Tech stack
 
@@ -104,6 +104,15 @@ curl.exe -F "file=@requirements.txt" http://127.0.0.1:8000/api/uploads/csv
 | 415 | File name doesn't end in `.csv` |
 | 422 | It's a `.csv`, but the content is unreadable. The `detail` message says why (e.g. "Line 3 has 1 values, but the header has 2 columns.") |
 
+### Data-quality profile
+
+`POST /api/uploads/csv/profile` accepts the same upload, follows the same status-code rules, and returns a quality report: missing values per column, exact duplicate rows, inferred column types, and type mismatches with line numbers. Each metric's exact definition is included in the response under `definitions`. **The report never changes your data.**
+
+```powershell
+# A file with known problems: missing values, a duplicate row, "N/A" in a number column, an impossible date
+curl.exe -F "file=@tests/fixtures/messy_sales.csv" http://127.0.0.1:8000/api/uploads/csv/profile
+```
+
 ## Running tests and checks
 
 ```powershell
@@ -145,9 +154,10 @@ Insightflow/
 │  │  ├─ main.py          # Creates the FastAPI app and registers routes
 │  │  ├─ config.py        # Settings loaded from .env (secrets stay here)
 │  │  ├─ api/health.py    # GET /api/health
-│  │  ├─ api/uploads.py   # POST /api/uploads/csv (request checks only)
-│  │  └─ ingestion/csv_parser.py  # CSV content validation (no FastAPI code)
-│  ├─ tests/              # test_health.py, test_uploads.py, test_csv_parser.py, fixtures/
+│  │  ├─ api/uploads.py   # POST /api/uploads/csv and /csv/profile (request checks only)
+│  │  ├─ ingestion/csv_parser.py  # CSV content validation (no FastAPI code)
+│  │  └─ ingestion/profiler.py    # Read-only data-quality report
+│  ├─ tests/              # one test file per module, plus fixtures/ (sample CSVs)
 │  ├─ requirements.txt
 │  └─ .env.example
 ├─ frontend/

@@ -21,8 +21,20 @@ class CsvSummary:
     columns: list[str]
 
 
-def summarize_csv(content: bytes) -> CsvSummary:
-    """Validate CSV bytes and return their row count and column names."""
+@dataclass(frozen=True)
+class CsvRow:
+    line: int  # line in the file where this row starts (the header is usually line 1)
+    values: list[str]  # exactly as written in the file; never trimmed or converted
+
+
+@dataclass(frozen=True)
+class ParsedCsv:
+    columns: list[str]
+    rows: list[CsvRow]
+
+
+def parse_csv(content: bytes) -> ParsedCsv:
+    """Validate CSV bytes and return the column names and every data row."""
     text = _decode(content)
     if not text.strip():
         raise CsvValidationError("The file is empty.")
@@ -30,13 +42,19 @@ def summarize_csv(content: bytes) -> CsvSummary:
     reader = csv.reader(io.StringIO(text, newline=""))
     try:
         columns = _read_header(reader)
-        row_count = _count_rows(reader, expected_width=len(columns))
+        rows = _read_rows(reader, expected_width=len(columns))
     except csv.Error as error:
         raise CsvValidationError(f"Could not parse the CSV near line {reader.line_num}: {error}.") from error
 
-    if row_count == 0:
+    if not rows:
         raise CsvValidationError("The file has column headers but no data rows.")
-    return CsvSummary(row_count=row_count, columns=columns)
+    return ParsedCsv(columns=columns, rows=rows)
+
+
+def summarize_csv(content: bytes) -> CsvSummary:
+    """Validate CSV bytes and return their row count and column names."""
+    parsed = parse_csv(content)
+    return CsvSummary(row_count=len(parsed.rows), columns=parsed.columns)
 
 
 def _decode(content: bytes) -> str:
@@ -74,14 +92,15 @@ def _read_header(reader: CsvReader) -> list[str]:
     return columns
 
 
-def _count_rows(reader: CsvReader, expected_width: int) -> int:
-    row_count = 0
+def _read_rows(reader: CsvReader, expected_width: int) -> list[CsvRow]:
+    rows: list[CsvRow] = []
+    start_line = reader.line_num + 1
     for row in reader:
-        if not row:  # blank line
-            continue
-        if len(row) != expected_width:
+        if row and len(row) != expected_width:
             raise CsvValidationError(
                 f"Line {reader.line_num} has {len(row)} values, but the header has {expected_width} columns."
             )
-        row_count += 1
-    return row_count
+        if row:  # skip blank lines
+            rows.append(CsvRow(line=start_line, values=row))
+        start_line = reader.line_num + 1  # a quoted value can span several lines
+    return rows

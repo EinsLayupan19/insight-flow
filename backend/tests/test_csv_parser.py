@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.ingestion.csv_parser import CsvValidationError, summarize_csv
+from app.ingestion.csv_parser import CsvValidationError, parse_csv, summarize_csv
 
 
 def test_valid_csv_returns_row_count_and_columns() -> None:
@@ -35,6 +35,15 @@ def test_header_whitespace_is_trimmed() -> None:
     summary = summarize_csv(b" store , revenue \nNorth,100\n")
 
     assert summary.columns == ["store", "revenue"]
+
+
+def test_parse_csv_keeps_raw_values_and_start_line_numbers() -> None:
+    parsed = parse_csv(b'store,note\nNorth,"two\nlines"\n\n South ,ok\n')
+
+    assert [(row.line, row.values) for row in parsed.rows] == [
+        (2, ["North", "two\nlines"]),
+        (5, [" South ", "ok"]),  # line 4 is blank; spaces are kept as-is
+    ]
 
 
 @pytest.mark.parametrize(
