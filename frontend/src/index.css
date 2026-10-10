@@ -1,0 +1,256 @@
+:root {
+  --navy-900: #0b1f38;
+  --navy-800: #0f2a4a;
+  --navy-600: #24466f;
+  --gray-50: #f6f7f9;
+  --gray-100: #eceef2;
+  --gray-200: #dde1e7;
+  --gray-500: #6b7280;
+  --gray-700: #374151;
+  --white: #ffffff;
+  --green: #15803d;
+  --amber: #b45309;
+  --red: #b91c1c;
+  --red-bg: #fef2f2;
+
+  --radius: 10px;
+  --shadow: 0 1px 2px rgb(15 42 74 / 0.06), 0 1px 3px rgb(15 42 74 / 0.08);
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--gray-700);
+  background: var(--gray-50);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--gray-50);
+}
+
+h1,
+h2 {
+  color: var(--navy-900);
+  margin: 0;
+}
+
+/* ---------- Layout ---------- */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--navy-800);
+  color: var(--white);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  font-size: 1.1rem;
+  letter-spacing: 0.01em;
+}
+
+.tagline {
+  font-size: 0.875rem;
+  color: rgb(255 255 255 / 0.7);
+}
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 16px;
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.intro h1 {
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
+}
+
+.intro p {
+  margin: 6px 0 0;
+  color: var(--gray-500);
+}
+
+.app-footer {
+  padding: 16px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--gray-500);
+  border-top: 1px solid var(--gray-200);
+}
+
+/* ---------- Cards ---------- */
+
+.card {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.card-header h2 {
+  font-size: 1rem;
+}
+
+.button-secondary {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--navy-800);
+  cursor: pointer;
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: var(--gray-100);
+}
+
+.button-secondary:focus-visible {
+  outline: 2px solid var(--navy-600);
+  outline-offset: 2px;
+}
+
+.button-secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------- Status ---------- */
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-checking { background: var(--amber); }
+.status-connected { background: var(--green); }
+.status-error { background: var(--red); }
+
+.status-name {
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+.status-label {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.status-details {
+  display: flex;
+  gap: 32px;
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.status-details dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gray-500);
+}
+
+.status-details dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--navy-900);
+}
+
+.callout-error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 0.9rem;
+}
+
+/* ---------- Roadmap ---------- */
+
+.empty-state {
+  margin: 0 0 12px;
+  color: var(--gray-500);
+}
+
+.roadmap {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.roadmap li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--gray-100);
+}
+
+.roadmap strong {
+  color: var(--navy-900);
+  font-weight: 600;
+}
+
+.roadmap p {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  color: var(--gray-500);
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+@media (max-width: 560px) {
+  .tagline {
+    display: none;
+  }
+}

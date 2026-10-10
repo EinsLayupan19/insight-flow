@@ -1,0 +1,29 @@
+# --- Secrets: never commit real environment files ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Node / Vite ---
+node_modules/
+dist/
+*.local
+
+# --- Local data (future CSV uploads and DuckDB files) ---
+backend/data/
+*.duckdb
+*.duckdb.wal
+
+# --- Editors and OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
