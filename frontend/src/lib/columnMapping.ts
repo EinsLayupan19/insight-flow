@@ -57,6 +57,16 @@ export function mappingFormFields(mapping: ColumnMapping): Record<string, string
   return fields
 }
 
+/** Only the explicit choices, as the dataset API expects them (role -> column). */
+export function explicitMapping(mapping: ColumnMapping): ColumnMapping {
+  const explicit: ColumnMapping = {}
+  for (const role of METRIC_ROLES) {
+    const chosen = mapping[role]
+    if (chosen) explicit[role] = chosen
+  }
+  return explicit
+}
+
 export function isSameMapping(a: ColumnMapping, b: ColumnMapping): boolean {
   return METRIC_ROLES.every((role) => (a[role] ?? '') === (b[role] ?? ''))
 }

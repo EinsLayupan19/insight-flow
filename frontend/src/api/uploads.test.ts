@@ -100,7 +100,7 @@ describe('errors are explained, not hidden', () => {
   it('rejects a response that is not InsightFlow data', async () => {
     mockFetch(jsonResponse({ hello: 'world' }))
 
-    await expect(calculateMetrics(file, {})).rejects.toThrow('not InsightFlow analysis data')
+    await expect(calculateMetrics(file, {})).rejects.toThrow('not InsightFlow data')
   })
 
   it('passes a user cancellation through unchanged so it can be ignored', async () => {

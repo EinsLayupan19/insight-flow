@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatMetricValue, formatPercent, pluralize } from './format'
+import { formatBytes, formatDateTime, formatMetricValue, formatPercent, pluralize } from './format'
+
+describe('formatDateTime', () => {
+  it("shows an API timestamp in the reader's time zone", () => {
+    expect(formatDateTime('2026-10-11T09:12:00.000+00:00', 'UTC')).toBe('Oct 11, 2026, 9:12 AM')
+    expect(formatDateTime('2026-10-11T09:12:00.000+00:00', 'Asia/Manila')).toBe('Oct 11, 2026, 5:12 PM')
+  })
+
+  it('returns text it cannot read unchanged instead of "Invalid Date"', () => {
+    expect(formatDateTime('not a date')).toBe('not a date')
+  })
+})
 
 describe('formatMetricValue', () => {
   it('shows amounts with 2 decimals and says when that hides digits', () => {

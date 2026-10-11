@@ -112,9 +112,10 @@ a {
 
 .app-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   padding: 14px 24px;
   background: var(--navy-800);
   color: var(--white);
@@ -129,9 +130,32 @@ a {
   letter-spacing: 0.01em;
 }
 
-.tagline {
-  font-size: 0.875rem;
-  color: rgb(255 255 255 / 0.7);
+.app-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.app-nav a {
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: rgb(255 255 255 / 0.78);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.app-nav a:hover {
+  color: var(--white);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.app-nav a[aria-current='page'] {
+  color: var(--white);
+  background: rgb(255 255 255 / 0.14);
+  font-weight: 600;
+}
+
+.app-nav a:focus-visible {
+  outline-color: var(--white);
 }
 
 .content {
@@ -143,6 +167,11 @@ a {
   display: grid;
   gap: 20px;
   align-content: start;
+}
+
+/* Focus moves here on page changes (for screen readers); no visible ring needed on the whole page. */
+.content:focus {
+  outline: none;
 }
 
 .content > * {
@@ -268,6 +297,14 @@ a {
 
 .button-ghost:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+/* Links that look like buttons (navigation actions). */
+a.button-primary,
+a.button-secondary,
+a.button-ghost {
+  display: inline-block;
+  text-decoration: none;
 }
 
 .button-primary:disabled,
@@ -1137,6 +1174,228 @@ a {
   margin-top: 4px;
 }
 
+/* ---------- Dataset library ---------- */
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--navy-600);
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.storage-choice {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+}
+
+.storage-choice .checkbox-label {
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+.storage-choice .upload-note {
+  margin-top: 4px;
+  padding-left: 22px;
+}
+
+.storage-note {
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+  color: var(--gray-500);
+}
+
+.empty-panel {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--gray-600);
+}
+
+.empty-panel .button-primary {
+  margin-top: 6px;
+  text-decoration: none;
+}
+
+.empty-title {
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+.dataset-link {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dataset-id {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--gray-500);
+}
+
+.back-link {
+  font-size: 0.9rem;
+}
+
+.dataset-header h1 {
+  font-size: 1.45rem;
+  overflow-wrap: anywhere;
+}
+
+.dataset-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.dataset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dataset-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.dataset-facts dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
+
+.dataset-facts dd {
+  margin: 4px 0 0;
+}
+
+.dataset-columns {
+  flex-basis: 100%;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip-list code {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--navy-900);
+}
+
+.button-danger {
+  padding: 7px 12px;
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  background: var(--red);
+  color: var(--white);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button-danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.button-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button-ghost.danger {
+  color: var(--red);
+}
+
+.confirm-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #f5c6c6;
+  border-radius: 8px;
+  background: var(--red-bg);
+  font-size: 0.9rem;
+}
+
+.confirm-panel p + p {
+  margin-top: 4px;
+}
+
+.action-note {
+  margin: 14px 0 0;
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+}
+
+.history-list li + li {
+  border-top: 1px solid var(--gray-100);
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(150px, max-content) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 10px 14px;
+  color: var(--gray-700);
+  text-decoration: none;
+}
+
+.history-item:hover {
+  background: var(--gray-50);
+}
+
+.history-item.is-selected {
+  background: #eef4fb;
+  box-shadow: inset 3px 0 0 var(--navy-600);
+}
+
+.history-kind {
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+.history-detail {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.history-time {
+  font-size: 0.82rem;
+  color: var(--gray-500);
+  white-space: nowrap;
+}
+
 /* ---------- Small screens ---------- */
 
 @media (max-width: 640px) {
@@ -1144,8 +1403,13 @@ a {
     padding: 12px 16px;
   }
 
-  .tagline {
-    display: none;
+  .app-nav a {
+    padding: 6px 8px;
+    font-size: 0.85rem;
+  }
+
+  .history-item {
+    grid-template-columns: 1fr;
   }
 
   .content {

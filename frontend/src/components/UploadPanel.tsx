@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
-import { latestData, type Analysis } from '../hooks/useCsvAnalysis'
+import type { Analysis } from '../hooks/useCsvAnalysis'
+import { latestData } from '../lib/requestState'
 import type { FileSelection } from '../lib/files'
 import { formatBytes } from '../lib/format'
 import { AnalysisSteps } from './AnalysisSteps'
@@ -9,6 +10,8 @@ import { FileIcon, UploadIcon } from './Icons'
 type UploadPanelProps = {
   selection: FileSelection
   analysis: Analysis | null
+  saveToLibrary: boolean
+  onSaveToLibraryChange: (save: boolean) => void
   onSelectFiles: (files: readonly File[]) => void
   onClearSelection: () => void
   onAnalyze: (file: File) => void
@@ -19,6 +22,8 @@ type UploadPanelProps = {
 export function UploadPanel({
   selection,
   analysis,
+  saveToLibrary,
+  onSaveToLibraryChange,
   onSelectFiles,
   onClearSelection,
   onAnalyze,
@@ -86,14 +91,29 @@ export function UploadPanel({
           {selection.warning && <Callout tone="warning">{selection.warning}</Callout>}
 
           {run === null && (
-            <div className="upload-actions">
-              <button type="button" className="button-primary" onClick={() => onAnalyze(file)}>
-                Analyze file
-              </button>
-              <p className="upload-note">
-                The file is sent to your InsightFlow server, analyzed in memory, and not stored.
-              </p>
-            </div>
+            <>
+              <div className="storage-choice">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={saveToLibrary}
+                    onChange={(event) => onSaveToLibraryChange(event.target.checked)}
+                    aria-describedby="storage-choice-help"
+                  />
+                  Save to the dataset library
+                </label>
+                <p id="storage-choice-help" className="upload-note">
+                  {saveToLibrary
+                    ? "The file is stored on the InsightFlow server's disk, and every analysis is recorded in its history, until you delete it."
+                    : 'The file is analyzed in memory and discarded. Nothing is stored.'}
+                </p>
+              </div>
+              <div className="upload-actions">
+                <button type="button" className="button-primary" onClick={() => onAnalyze(file)}>
+                  {saveToLibrary ? 'Save and analyze' : 'Analyze file'}
+                </button>
+              </div>
+            </>
           )}
 
           {run !== null && <AnalysisSteps analysis={run} />}

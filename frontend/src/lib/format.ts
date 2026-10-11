@@ -26,6 +26,13 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** A timestamp from the API (UTC) in the reader's local time, e.g. "Oct 11, 2026, 9:12 AM". */
+export function formatDateTime(iso: string, timeZone?: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date)
+}
+
 export type ValueFormat = 'count' | 'quantity' | 'amount'
 export type FormattedValue = { text: string; exact: string; isRounded: boolean }
 

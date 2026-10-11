@@ -1,11 +1,26 @@
-import { AnalysisResults } from './components/AnalysisResults'
-import { BackendStatus } from './components/BackendStatus'
-import { UploadPanel } from './components/UploadPanel'
-import { WorkflowGuide } from './components/WorkflowGuide'
+import { useState } from 'react'
+import { AppNav } from './components/AppNav'
 import { useCsvAnalysis } from './hooks/useCsvAnalysis'
+import { usePageChangeFocus, useRoute } from './hooks/useRoute'
+import { AnalyzePage } from './pages/AnalyzePage'
+import { DatasetDetailPage } from './pages/DatasetDetailPage'
+import { DatasetsPage } from './pages/DatasetsPage'
+
+const MAIN_ID = 'main-content'
 
 function App() {
+  const route = useRoute()
+  // Lives here, not in AnalyzePage, so the current results survive switching pages.
   const csv = useCsvAnalysis()
+  const [notice, setNotice] = useState<string | null>(null)
+  const [noticePage, setNoticePage] = useState(route.page)
+  usePageChangeFocus(route, MAIN_ID)
+
+  // A notice (such as "Deleted ...") is shown on the datasets list; drop it once the user moves on.
+  if (route.page !== noticePage) {
+    setNoticePage(route.page)
+    if (route.page !== 'datasets') setNotice(null)
+  }
 
   return (
     <div className="app">
@@ -14,48 +29,25 @@ function App() {
           <img src="/favicon.svg" alt="" width="28" height="28" />
           <span>InsightFlow AI</span>
         </div>
-        <span className="tagline">Evidence-first retail analytics</span>
+        <AppNav route={route} />
       </header>
 
-      <main className="content">
-        <section className="intro">
-          <h1>Retail CSV analysis</h1>
-          <p>
-            Upload a sales file to check its data quality and see the retail metrics its columns support. Every number
-            shows how it was calculated.
-          </p>
-        </section>
-
-        {/* Source order: upload, results, sidebar. CSS moves the sidebar beside the upload card on wide screens. */}
-        <div className="workspace">
-          <UploadPanel
-            selection={csv.selection}
-            analysis={csv.analysis}
-            onSelectFiles={csv.selectFiles}
-            onClearSelection={csv.clearSelection}
-            onAnalyze={(file) => void csv.analyze(file)}
-            onRetry={csv.retryAnalysis}
-            onCancel={csv.clearResults}
+      <main id={MAIN_ID} className="content" tabIndex={-1}>
+        {route.page === 'analyze' && <AnalyzePage csv={csv} />}
+        {route.page === 'datasets' && <DatasetsPage notice={notice} onDismissNotice={() => setNotice(null)} />}
+        {route.page === 'dataset' && (
+          <DatasetDetailPage
+            key={route.datasetId}
+            datasetId={route.datasetId}
+            analysisId={route.analysisId}
+            onDeleted={setNotice}
           />
-
-          {csv.analysis && (
-            <AnalysisResults
-              analysis={csv.analysis}
-              onRetryProfile={csv.retryProfile}
-              onRetryMetrics={csv.retryMetrics}
-              onApplyMapping={csv.applyMapping}
-              onClear={csv.clearResults}
-            />
-          )}
-
-          <aside className="sidebar" aria-label="About this tool">
-            <WorkflowGuide />
-            <BackendStatus />
-          </aside>
-        </div>
+        )}
       </main>
 
-      <footer className="app-footer">InsightFlow AI · Files are analyzed in memory and not stored</footer>
+      <footer className="app-footer">
+        InsightFlow AI · Evidence-first retail analytics · Files are stored only when you save them to the dataset library
+      </footer>
     </div>
   )
 }

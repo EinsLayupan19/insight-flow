@@ -1,51 +1,67 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError } from '../api/http'
-import {
-  calculateMetrics,
-  profileCsv,
-  validateCsv,
-  type CsvMetricsResponse,
-  type CsvProfileResponse,
-  type CsvUploadResponse,
-} from '../api/uploads'
+import { runMetricsAnalysis, runProfileAnalysis, saveDataset, type SaveDatasetResponse } from '../api/datasets'
+import { calculateMetrics, profileCsv, validateCsv, type QualityReport, type RetailMetrics } from '../api/uploads'
 import type { ColumnMapping } from '../lib/columnMapping'
+import { userMessage } from '../lib/errors'
 import { EMPTY_SELECTION, selectCsvFile, type FileSelection } from '../lib/files'
+import { failedFrom, loadingFrom, type RequestState } from '../lib/requestState'
 
-/** One request's lifecycle. `previous` keeps the last good result visible while refreshing or after a failed refresh. */
-export type RequestState<T> =
-  | { status: 'idle' }
-  | { status: 'loading'; previous: T | null }
-  | { status: 'success'; data: T }
-  | { status: 'error'; message: string; previous: T | null }
+/** What validation reports about a file. The upload and dataset endpoints both return these fields. */
+export type FileSummary = {
+  filename: string
+  size_bytes: number
+  row_count: number
+  column_count: number
+  columns: string[]
+}
 
-/** One run of the workflow on one file. Results live only in this page's memory. */
+/** 'memory': analyzed and discarded. 'library': saved, with every analysis recorded in its history. */
+export type StorageMode = 'memory' | 'library'
+
+/** One run of the workflow on one file. The results shown here live in this page's memory. */
 export type Analysis = {
   id: number
   file: File
-  validation: RequestState<CsvUploadResponse>
-  profile: RequestState<CsvProfileResponse>
-  metrics: RequestState<CsvMetricsResponse>
+  mode: StorageMode
+  validation: RequestState<FileSummary>
+  /** In library mode: the saved dataset (or the existing one with the same content). */
+  saved: SaveDatasetResponse | null
+  profile: RequestState<QualityReport>
+  metrics: RequestState<RetailMetrics>
   /** Mapping sent with the latest metrics request (used by "Try again"). */
   requestedMapping: ColumnMapping
   /** Mapping behind the metrics currently shown. */
   appliedMapping: ColumnMapping
 }
 
-export function latestData<T>(state: RequestState<T>): T | null {
-  if (state.status === 'success') return state.data
-  if (state.status === 'loading' || state.status === 'error') return state.previous
-  return null
+/** Where results come from: the saved dataset (recorded in its history), or the file itself (not stored). */
+type Source = { file: File; datasetId: number | null }
+
+const sourceOf = (analysis: Analysis): Source => ({ file: analysis.file, datasetId: analysis.saved?.dataset.id ?? null })
+
+async function validateOrSave(
+  file: File,
+  mode: StorageMode,
+  signal: AbortSignal,
+): Promise<{ summary: FileSummary; saved: SaveDatasetResponse | null }> {
+  if (mode === 'memory') return { summary: await validateCsv(file, signal), saved: null }
+  const saved = await saveDataset(file, signal)
+  return { summary: saved.dataset, saved }
 }
 
-function errorMessage(error: unknown): string {
-  // ApiError messages are written for users. Anything else is a bug worth seeing in the console.
-  if (error instanceof ApiError) return error.message
-  console.error('Unexpected error during analysis:', error)
-  return 'Something went wrong in the app. Try again, and check the browser console if it keeps happening.'
+async function fetchProfile(source: Source, signal: AbortSignal): Promise<QualityReport> {
+  if (source.datasetId !== null) return (await runProfileAnalysis(source.datasetId, signal)).result
+  return (await profileCsv(source.file, signal)).profile
+}
+
+async function fetchMetrics(source: Source, mapping: ColumnMapping, signal: AbortSignal): Promise<RetailMetrics> {
+  if (source.datasetId !== null) return (await runMetricsAnalysis(source.datasetId, mapping, signal)).result
+  return (await calculateMetrics(source.file, mapping, signal)).metrics
 }
 
 export function useCsvAnalysis() {
   const [selection, setSelection] = useState<FileSelection>(EMPTY_SELECTION)
+  const [saveToLibrary, setSaveToLibrary] = useState(true)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   // One controller for validate + profile, and one for metrics, which can re-run on its own.
   const runController = useRef<AbortController | null>(null)
@@ -57,7 +73,7 @@ export function useCsvAnalysis() {
     metricsController.current?.abort()
   }, [])
 
-  useEffect(() => abortAll, [abortAll]) // cancel in-flight requests if the page unmounts
+  useEffect(() => abortAll, [abortAll]) // cancel in-flight requests if the app unmounts
 
   /** Apply `change` only while `id` is still the current analysis, so late responses are ignored. */
   const update = useCallback((id: number, change: (current: Analysis) => Analysis) => {
@@ -65,44 +81,40 @@ export function useCsvAnalysis() {
   }, [])
 
   const runProfile = useCallback(
-    async (id: number, file: File, signal: AbortSignal) => {
-      update(id, (a) => ({ ...a, profile: { status: 'loading', previous: latestData(a.profile) } }))
+    async (id: number, source: Source, signal: AbortSignal) => {
+      update(id, (a) => ({ ...a, profile: loadingFrom(a.profile) }))
       try {
-        const data = await profileCsv(file, signal)
+        const data = await fetchProfile(source, signal)
         update(id, (a) => ({ ...a, profile: { status: 'success', data } }))
       } catch (error) {
         if (signal.aborted) return
-        const message = errorMessage(error)
-        update(id, (a) => ({ ...a, profile: { status: 'error', message, previous: latestData(a.profile) } }))
+        const message = userMessage(error)
+        update(id, (a) => ({ ...a, profile: failedFrom(a.profile, message) }))
       }
     },
     [update],
   )
 
   const runMetrics = useCallback(
-    async (id: number, file: File, mapping: ColumnMapping) => {
+    async (id: number, source: Source, mapping: ColumnMapping) => {
       metricsController.current?.abort() // a newer request replaces one still running
       const controller = new AbortController()
       metricsController.current = controller
-      update(id, (a) => ({
-        ...a,
-        requestedMapping: mapping,
-        metrics: { status: 'loading', previous: latestData(a.metrics) },
-      }))
+      update(id, (a) => ({ ...a, requestedMapping: mapping, metrics: loadingFrom(a.metrics) }))
       try {
-        const data = await calculateMetrics(file, mapping, controller.signal)
+        const data = await fetchMetrics(source, mapping, controller.signal)
         update(id, (a) => ({ ...a, appliedMapping: mapping, metrics: { status: 'success', data } }))
       } catch (error) {
         if (controller.signal.aborted) return
-        const message = errorMessage(error)
-        update(id, (a) => ({ ...a, metrics: { status: 'error', message, previous: latestData(a.metrics) } }))
+        const message = userMessage(error)
+        update(id, (a) => ({ ...a, metrics: failedFrom(a.metrics, message) }))
       }
     },
     [update],
   )
 
   const analyze = useCallback(
-    async (file: File) => {
+    async (file: File, mode: StorageMode) => {
       abortAll()
       const controller = new AbortController()
       runController.current = controller
@@ -110,26 +122,30 @@ export function useCsvAnalysis() {
       setAnalysis({
         id,
         file,
+        mode,
         validation: { status: 'loading', previous: null },
+        saved: null,
         profile: { status: 'idle' },
         metrics: { status: 'idle' },
         requestedMapping: {},
         appliedMapping: {},
       })
 
+      let source: Source
       try {
-        const data = await validateCsv(file, controller.signal)
-        update(id, (a) => ({ ...a, validation: { status: 'success', data } }))
+        const { summary, saved } = await validateOrSave(file, mode, controller.signal)
+        update(id, (a) => ({ ...a, saved, validation: { status: 'success', data: summary } }))
+        source = { file, datasetId: saved?.dataset.id ?? null }
       } catch (error) {
         if (controller.signal.aborted) return
-        const message = errorMessage(error)
+        const message = userMessage(error)
         update(id, (a) => ({ ...a, validation: { status: 'error', message, previous: null } }))
         return
       }
 
-      // Both steps upload the same file again. They run in parallel and can fail independently.
-      void runProfile(id, file, controller.signal)
-      void runMetrics(id, file, {})
+      // Both steps run in parallel and can fail independently.
+      void runProfile(id, source, controller.signal)
+      void runMetrics(id, source, {})
     },
     [abortAll, update, runProfile, runMetrics],
   )
@@ -137,27 +153,33 @@ export function useCsvAnalysis() {
   const selectFiles = useCallback((files: readonly File[]) => setSelection(selectCsvFile(files)), [])
   const clearSelection = useCallback(() => setSelection(EMPTY_SELECTION), [])
 
+  const analyzeSelected = useCallback(
+    (file: File) => void analyze(file, saveToLibrary ? 'library' : 'memory'),
+    [analyze, saveToLibrary],
+  )
+
+  /** Repeat the same run (same file, same storage choice). */
   const retryAnalysis = useCallback(() => {
-    if (analysis) void analyze(analysis.file)
+    if (analysis) void analyze(analysis.file, analysis.mode)
   }, [analysis, analyze])
 
   const retryProfile = useCallback(() => {
     const signal = runController.current?.signal
-    if (analysis && signal && !signal.aborted) void runProfile(analysis.id, analysis.file, signal)
+    if (analysis && signal && !signal.aborted) void runProfile(analysis.id, sourceOf(analysis), signal)
   }, [analysis, runProfile])
 
   const retryMetrics = useCallback(() => {
-    if (analysis) void runMetrics(analysis.id, analysis.file, analysis.requestedMapping)
+    if (analysis) void runMetrics(analysis.id, sourceOf(analysis), analysis.requestedMapping)
   }, [analysis, runMetrics])
 
   const applyMapping = useCallback(
     (mapping: ColumnMapping) => {
-      if (analysis) void runMetrics(analysis.id, analysis.file, mapping)
+      if (analysis) void runMetrics(analysis.id, sourceOf(analysis), mapping)
     },
     [analysis, runMetrics],
   )
 
-  /** Cancel anything running and forget the results. Used by "Cancel" and "Clear results". */
+  /** Cancel anything running and forget the results shown. Saved datasets are not affected. */
   const clearResults = useCallback(() => {
     abortAll()
     setAnalysis(null)
@@ -167,8 +189,10 @@ export function useCsvAnalysis() {
     selection,
     selectFiles,
     clearSelection,
+    saveToLibrary,
+    setSaveToLibrary,
     analysis,
-    analyze,
+    analyze: analyzeSelected,
     retryAnalysis,
     retryProfile,
     retryMetrics,

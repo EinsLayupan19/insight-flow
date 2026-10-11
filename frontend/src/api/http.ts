@@ -35,6 +35,63 @@ export async function errorFromResponse(response: Response): Promise<ApiError> {
   )
 }
 
+// ---------- Sending requests ----------
+
+const TIMEOUT_MS = 120_000
+const TIMEOUT_MESSAGE = 'The server did not answer within 2 minutes. Try again; large files take longer.'
+
+/** Send a request and parse its JSON body, which must pass `isExpected`. */
+export async function requestJson<T>(
+  url: string,
+  init: RequestInit,
+  isExpected: (body: unknown) => body is T,
+  signal?: AbortSignal,
+): Promise<T> {
+  const { response, timeout } = await send(url, init, signal)
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch (error) {
+    throw requestFailure(error, signal, timeout, 'The server sent a response that is not valid JSON.')
+  }
+  if (!isExpected(body)) {
+    throw new ApiError(
+      "The server's response is not InsightFlow data. Is another program using port 8000?",
+      response.status,
+    )
+  }
+  return body
+}
+
+/** Send a request whose success response has no body (HTTP 204). */
+export async function requestNoContent(url: string, init: RequestInit, signal?: AbortSignal): Promise<void> {
+  await send(url, init, signal)
+}
+
+async function send(url: string, init: RequestInit, signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(TIMEOUT_MS)
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
+  let response: Response
+  try {
+    response = await fetch(url, { ...init, signal: combined })
+  } catch (error) {
+    throw requestFailure(error, signal, timeout, `Could not reach the backend. ${START_BACKEND_HINT}`)
+  }
+  if (!response.ok) throw await errorFromResponse(response)
+  return { response, timeout }
+}
+
+/** Cancellation is passed through unchanged so callers can ignore it; anything else gets a clear message. */
+function requestFailure(error: unknown, signal: AbortSignal | undefined, timeout: AbortSignal, message: string): unknown {
+  if (signal?.aborted) return error
+  if (timeout.aborted) return new ApiError(TIMEOUT_MESSAGE, null, { cause: error })
+  return new ApiError(message, null, { cause: error })
+}
+
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 /** FastAPI errors look like {"detail": "message"} or {"detail": [{"msg": "..."}, ...]}. */
 export function describeDetail(body: unknown): string | null {
   if (typeof body !== 'object' || body === null || !('detail' in body)) return null

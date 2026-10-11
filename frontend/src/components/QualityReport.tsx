@@ -1,14 +1,14 @@
-// Renders the response of POST /api/uploads/csv/profile. Every number shown comes from
-// the API; the summary tiles only add up the per-column counts the API returned.
+// Renders a data-quality report from the API (profiled live, or recorded in a dataset's history).
+// Every number shown comes from the API; the summary tiles only add up its per-column counts.
 
 import { useState } from 'react'
-import type { ColumnProfile, CsvProfileResponse, QualityReport } from '../api/uploads'
-import { latestData, type RequestState } from '../hooks/useCsvAnalysis'
+import type { ColumnProfile, QualityReport } from '../api/uploads'
+import { latestData, type RequestState } from '../lib/requestState'
 import { formatCount, formatPercent, pluralize } from '../lib/format'
 import { Callout, LoadingState, StatusBadge } from './Feedback'
 
 type QualitySectionProps = {
-  state: RequestState<CsvProfileResponse>
+  state: RequestState<QualityReport>
   onRetry: () => void
 }
 
@@ -37,7 +37,7 @@ export function QualitySection({ state, onRetry }: QualitySectionProps) {
       )}
 
       {data !== null ? (
-        <QualityReportView report={data.profile} />
+        <QualityReportView report={data} />
       ) : (
         state.status !== 'error' && <LoadingState>Profiling data quality…</LoadingState>
       )}
@@ -53,7 +53,7 @@ function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0)
 }
 
-function QualityReportView({ report }: { report: QualityReport }) {
+export function QualityReportView({ report }: { report: QualityReport }) {
   const withMissing = report.columns.filter((column) => column.missing_count > 0)
   const withMismatches = report.columns.filter((column) => column.mismatch_count > 0)
   const anyFindings = report.duplicate_row_count > 0 || withMissing.length > 0 || withMismatches.length > 0

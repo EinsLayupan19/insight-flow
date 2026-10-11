@@ -1,6 +1,9 @@
+import type { SaveDatasetResponse } from '../api/datasets'
 import type { Analysis } from '../hooks/useCsvAnalysis'
 import type { ColumnMapping } from '../lib/columnMapping'
-import { formatBytes, pluralize } from '../lib/format'
+import { formatBytes, formatDateTime, pluralize } from '../lib/format'
+import { datasetHref } from '../lib/route'
+import { Callout } from './Feedback'
 import { MetricsSection } from './MetricsReport'
 import { QualitySection } from './QualityReport'
 
@@ -22,22 +25,28 @@ export function AnalysisResults({ analysis, onRetryProfile, onRetryMetrics, onAp
       <div className="results-header">
         <div className="results-title">
           <p className="eyebrow">Results</p>
-          <h2 id="results-heading">{summary.filename}</h2>
+          <h2 id="results-heading">{analysis.file.name}</h2>
           <p className="results-meta">
-            {pluralize(summary.row_count, 'row')} · {pluralize(summary.column_count, 'column')} · {formatBytes(summary.size_bytes)}{' '}
-            · analyzed in memory, not stored
+            {pluralize(summary.row_count, 'row')} · {pluralize(summary.column_count, 'column')} · {formatBytes(summary.size_bytes)}
+            {analysis.saved === null && ' · analyzed in memory, not stored'}
           </p>
         </div>
         <div className="results-actions">
-          <nav className="section-links" aria-label="Result sections">
-            <a href="#data-quality">Data quality</a>
-            <a href="#retail-metrics">Retail metrics</a>
-          </nav>
+          <div className="section-links" role="group" aria-label="Jump to a result section">
+            <button type="button" className="link-button" onClick={() => scrollToSection('data-quality')}>
+              Data quality
+            </button>
+            <button type="button" className="link-button" onClick={() => scrollToSection('retail-metrics')}>
+              Retail metrics
+            </button>
+          </div>
           <button type="button" className="button-secondary" onClick={onClear}>
             Clear results
           </button>
         </div>
       </div>
+
+      {analysis.saved && <SavedNotice saved={analysis.saved} />}
 
       <QualitySection state={analysis.profile} onRetry={onRetryProfile} />
       <MetricsSection
@@ -49,4 +58,32 @@ export function AnalysisResults({ analysis, onRetryProfile, onRetryMetrics, onAp
       />
     </section>
   )
+}
+
+function SavedNotice({ saved }: { saved: SaveDatasetResponse }) {
+  const { dataset } = saved
+  const link = (
+    <a className="button-secondary" href={datasetHref(dataset.id)}>
+      View dataset and history
+    </a>
+  )
+  if (saved.created) {
+    return (
+      <Callout tone="good" title="Saved to the dataset library" action={link}>
+        The file is stored on the InsightFlow server as dataset #{dataset.id}. These results are recorded in its
+        history.
+      </Callout>
+    )
+  }
+  return (
+    <Callout tone="info" title="Already in the dataset library" action={link}>
+      The same content was saved on {formatDateTime(dataset.created_at)} as “{dataset.filename}” (dataset #{dataset.id}).
+      No second copy was stored; these results were added to that dataset's history.
+    </Callout>
+  )
+}
+
+function scrollToSection(id: string) {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
 }

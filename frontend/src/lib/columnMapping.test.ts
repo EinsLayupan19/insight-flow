@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  explicitMapping,
   findConflicts,
   hasExplicitChoices,
   isSameMapping,
@@ -70,6 +71,15 @@ describe('mappingFormFields', () => {
 
   it('sends nothing for a fully automatic mapping', () => {
     expect(mappingFormFields({})).toEqual({})
+  })
+})
+
+describe('explicitMapping', () => {
+  it('keeps only real choices, keyed by role, for the dataset API', () => {
+    expect(explicitMapping({ quantity: 'Qty', revenue: '', order_id: 'OrderNo' })).toEqual({
+      order_id: 'OrderNo',
+      quantity: 'Qty',
+    })
   })
 })
 

@@ -1,3 +1,5 @@
+import { routeHref } from '../lib/route'
+
 export function WorkflowGuide() {
   return (
     <section className="card guide-card" aria-labelledby="guide-heading">
@@ -22,7 +24,12 @@ export function WorkflowGuide() {
         Metrics use columns named exactly <code>order_id</code>, <code>quantity</code>, <code>unit_price</code>, and{' '}
         <code>revenue</code>. Columns with other names can be mapped after the analysis.
       </p>
-      <p className="guide-note">Files are analyzed in memory and not stored. Profit is not calculated yet.</p>
+      <p className="guide-note">
+        <strong>Storage:</strong> with <em>Save to the dataset library</em> checked, the file is kept on the server's
+        disk and every analysis is recorded, until you delete it in{' '}
+        <a href={routeHref({ page: 'datasets' })}>Saved datasets</a>. Unchecked, the file is analyzed in memory and
+        discarded. Profit is not calculated yet.
+      </p>
     </section>
   )
 }

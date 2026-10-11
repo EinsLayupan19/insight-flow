@@ -1,7 +1,8 @@
 // The three real requests of an analysis and their state. No percentages: the browser's
 // fetch API cannot report upload progress, and server-side work has no progress signal.
 
-import type { Analysis, RequestState } from '../hooks/useCsvAnalysis'
+import type { Analysis } from '../hooks/useCsvAnalysis'
+import type { RequestState } from '../lib/requestState'
 import { CheckIcon, ErrorIcon, MinusIcon, PendingIcon, Spinner } from './Icons'
 
 type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
@@ -46,7 +47,11 @@ export function AnalysisSteps({ analysis }: { analysis: Analysis }) {
   const validationFailed = analysis.validation.status === 'error'
   const later = (state: RequestState<unknown>): StepStatus => (validationFailed ? 'skipped' : stepStatus(state))
   const steps = [
-    { id: 'validate', label: 'Validate the file', status: stepStatus(analysis.validation) },
+    {
+      id: 'validate',
+      label: analysis.mode === 'library' ? 'Validate and save the file' : 'Validate the file',
+      status: stepStatus(analysis.validation),
+    },
     { id: 'profile', label: 'Profile data quality', status: later(analysis.profile) },
     { id: 'metrics', label: 'Calculate retail metrics', status: later(analysis.metrics) },
   ]

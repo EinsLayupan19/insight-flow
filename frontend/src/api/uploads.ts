@@ -4,7 +4,7 @@
 // every analysis step uploads the file again.
 
 import { mappingFormFields, type ColumnMapping, type MetricRole } from '../lib/columnMapping'
-import { ApiError, START_BACKEND_HINT, errorFromResponse } from './http'
+import { isObject, requestJson } from './http'
 
 // ---------- Response types (mirror the backend's Pydantic response models) ----------
 
@@ -74,75 +74,32 @@ export const UPLOAD_ENDPOINTS = {
   metrics: '/api/uploads/csv/metrics',
 } as const
 
-const TIMEOUT_MS = 120_000
-const TIMEOUT_MESSAGE = 'The server did not answer within 2 minutes. Try again, or try a smaller file.'
-
 /** Check that the file is a readable CSV. Returns its row count and column names. */
 export function validateCsv(file: File, signal?: AbortSignal): Promise<CsvUploadResponse> {
-  return postCsv(UPLOAD_ENDPOINTS.validate, file, {}, signal, isUploadResponse)
+  return requestJson(UPLOAD_ENDPOINTS.validate, csvForm(file, {}), isUploadResponse, signal)
 }
 
 /** Report missing values, duplicate rows, and inferred column types. */
 export function profileCsv(file: File, signal?: AbortSignal): Promise<CsvProfileResponse> {
-  return postCsv(UPLOAD_ENDPOINTS.profile, file, {}, signal, isProfileResponse)
+  return requestJson(UPLOAD_ENDPOINTS.profile, csvForm(file, {}), isProfileResponse, signal)
 }
 
 /** Calculate retail metrics. `mapping` holds explicit column choices; empty means automatic. */
 export function calculateMetrics(file: File, mapping: ColumnMapping, signal?: AbortSignal): Promise<CsvMetricsResponse> {
-  return postCsv(UPLOAD_ENDPOINTS.metrics, file, mappingFormFields(mapping), signal, isMetricsResponse)
+  return requestJson(UPLOAD_ENDPOINTS.metrics, csvForm(file, mappingFormFields(mapping)), isMetricsResponse, signal)
 }
 
-async function postCsv<T>(
-  url: string,
-  file: File,
-  fields: Record<string, string>,
-  signal: AbortSignal | undefined,
-  isExpected: (body: unknown) => body is T,
-): Promise<T> {
+/** A POST request carrying the file in the form field "file", plus any extra form fields. */
+export function csvForm(file: File, fields: Record<string, string>): RequestInit {
   const form = new FormData()
   form.append('file', file, file.name)
   for (const [name, value] of Object.entries(fields)) form.append(name, value)
-
-  const timeout = AbortSignal.timeout(TIMEOUT_MS)
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
-
-  let response: Response
-  try {
-    response = await fetch(url, { method: 'POST', body: form, signal: combined })
-  } catch (error) {
-    throw requestFailure(error, signal, timeout, `Could not reach the backend. ${START_BACKEND_HINT}`)
-  }
-  if (!response.ok) throw await errorFromResponse(response)
-
-  let body: unknown
-  try {
-    body = await response.json()
-  } catch (error) {
-    throw requestFailure(error, signal, timeout, 'The server sent a response that is not valid JSON.')
-  }
-  if (!isExpected(body)) {
-    throw new ApiError(
-      "The server's response is not InsightFlow analysis data. Is another program using port 8000?",
-      response.status,
-    )
-  }
-  return body
-}
-
-/** Cancellation is passed through unchanged so callers can ignore it; anything else gets a clear message. */
-function requestFailure(error: unknown, signal: AbortSignal | undefined, timeout: AbortSignal, message: string): unknown {
-  if (signal?.aborted) return error
-  if (timeout.aborted) return new ApiError(TIMEOUT_MESSAGE, null, { cause: error })
-  return new ApiError(message, null, { cause: error })
+  return { method: 'POST', body: form }
 }
 
 // ---------- Response shape checks ----------
 // FastAPI validates every response against its response_model, so these light checks
 // only guard against a different program answering on the backend's port.
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
 
 function isUploadResponse(value: unknown): value is CsvUploadResponse {
   return isObject(value) && typeof value.filename === 'string' && typeof value.row_count === 'number' && Array.isArray(value.columns)

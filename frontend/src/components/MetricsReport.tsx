@@ -1,8 +1,8 @@
-// Renders the response of POST /api/uploads/csv/metrics. Only metrics the API returned
-// are shown, with the API's own definitions, notes, and included/excluded row counts.
+// Renders retail metrics from the API (calculated live, or recorded in a dataset's history).
+// Only metrics the API returned are shown, with its own definitions, notes, and row counts.
 
-import type { CsvMetricsResponse, RetailMetrics } from '../api/uploads'
-import { latestData, type RequestState } from '../hooks/useCsvAnalysis'
+import type { RetailMetrics } from '../api/uploads'
+import { latestData, type RequestState } from '../lib/requestState'
 import type { ColumnMapping } from '../lib/columnMapping'
 import { METRIC_ORDER, describeMetric, hasUnavailableMetrics, revenueBasis } from '../lib/metricDisplay'
 import { ColumnMappingPanel } from './ColumnMappingPanel'
@@ -11,7 +11,7 @@ import { Spinner } from './Icons'
 import { MetricCard } from './MetricCard'
 
 type MetricsSectionProps = {
-  state: RequestState<CsvMetricsResponse>
+  state: RequestState<RetailMetrics>
   columns: string[]
   appliedMapping: ColumnMapping
   onApplyMapping: (mapping: ColumnMapping) => void
@@ -49,9 +49,9 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
           <ColumnMappingPanel
             columns={columns}
             applied={appliedMapping}
-            used={data.metrics.columns_used}
+            used={data.columns_used}
             busy={busy}
-            showHint={hasUnavailableMetrics(data.metrics)}
+            showHint={hasUnavailableMetrics(data)}
             onApply={onApplyMapping}
           />
           {busy && (
@@ -61,7 +61,7 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
           )}
           {/* While recalculating, the previous results stay visible but dimmed. */}
           <div className={busy ? 'metrics-body is-stale' : 'metrics-body'}>
-            <MetricsView metrics={data.metrics} />
+            <MetricsView metrics={data} />
           </div>
         </>
       ) : (
@@ -71,7 +71,7 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
   )
 }
 
-function MetricsView({ metrics }: { metrics: RetailMetrics }) {
+export function MetricsView({ metrics }: { metrics: RetailMetrics }) {
   const basis = revenueBasis(metrics)
   return (
     <>
