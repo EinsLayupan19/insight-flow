@@ -35,6 +35,7 @@ def test_opening_again_does_not_reapply_migrations(tmp_path: Path) -> None:
         (2, "allow_trends_analyses"),
         (3, "allow_performance_analyses"),
         (4, "allow_insights_analyses"),
+        (5, "create_narrations"),
     ]
     connection.close()
 

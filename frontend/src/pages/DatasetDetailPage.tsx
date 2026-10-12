@@ -12,6 +12,7 @@ import { Callout, LoadingState, StatusBadge } from '../components/Feedback'
 import { Spinner } from '../components/Icons'
 import { MetricsView } from '../components/MetricsReport'
 import { KeyFindingsView } from '../components/KeyFindings'
+import { NarrationPanel } from '../components/NarrationPanel'
 import { PerformanceView } from '../components/PerformanceReport'
 import { QualityReportView } from '../components/QualityReport'
 import { TrendsView } from '../components/TrendsReport'
@@ -476,6 +477,7 @@ function RecordedInsights({ record, disabled, onRun }: RecordedInsightsProps) {
   }
   return (
     <KeyFindingsView insights={record.result} busy={false}>
+      <NarrationPanel key={record.id} datasetId={record.dataset_id} analysisId={record.id} disabled={disabled} />
       <div className="trend-controls">
         <fieldset className="field">
           <legend>Compare by</legend>

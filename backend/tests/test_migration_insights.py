@@ -18,7 +18,7 @@ from app.datasets.models import AnalysisRequest, InsightsAnalysis
 from app.datasets.service import DatasetService
 from app.ingestion.csv_parser import parse_csv
 from app.ingestion.profiler import profile_csv
-from app.storage.database import MIGRATIONS_DIR, database_path, open_database, schema_version
+from app.storage.database import MIGRATIONS_DIR, database_path, load_migrations, open_database, schema_version
 from app.storage.file_store import FileStore, sha256_of
 from app.storage.repository import DatasetRepository
 
@@ -102,7 +102,8 @@ def test_upgrading_keeps_every_earlier_kind_readable(data_dir: Path, version_3_l
         assert record.result == version_3_library["results"][kind]
     with sqlite3.connect(database_path(data_dir)) as connection:
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == [1, 2, 3, 4]
+    # Upgraded through 0004 and on to the newest migration, whichever that is.
+    assert versions == list(range(1, len(load_migrations()) + 1))
 
 
 def test_upgraded_database_records_insights_next_to_the_old_history(data_dir: Path, version_3_library: dict) -> None:

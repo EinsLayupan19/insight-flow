@@ -12,7 +12,7 @@ An evidence-first retail analytics platform. Analysts will import retail data, v
 | Backend   | Python, FastAPI, Pydantic Settings             |
 | Analytics | DuckDB (in-memory SQL)                         |
 | Storage   | SQLite (built into Python) for dataset metadata and analysis history; saved CSV files on local disk |
-| AI        | Google Gemini behind a provider interface *(later phase)* |
+| AI        | Optional, off by default: a free local model through [Ollama](https://ollama.com) rewrites the key findings as a short summary. A provider interface leaves room for Gemini later. |
 | Testing   | Pytest (backend); Vitest, oxlint, and the TypeScript build (frontend) |
 
 ## Prerequisites (Windows)
@@ -90,7 +90,7 @@ Stop either server with `Ctrl + C`.
 8. **Review sales trends.** A column chart of **Gross sales** (or **Revenue (as recorded)**), **Orders**, or **Average order value** per period, with every period in a table below it. Choose **Group by** Day, Week (Monday to Sunday), or Month (the default), and the **Date column** if yours is not named `order_date`. Hover a period, or focus the chart and use the arrow keys, to read its value. Periods with no rows are left empty, never drawn as zero, and rows without a usable date are counted with their line numbers. With many periods (for example two years of days), the chart switches from columns to a line.
 9. **Rank products and categories.** A bar chart of the top 10 products (or categories, with the **Products / Categories** switch) by **Gross sales**, **Total quantity**, **Orders**, or **Rows**, each value printed at its bar, and every listed group in a table with its share of revenue, its rows, and the categories a product is filed under (or how many products a category holds). Choose the **Product column** and **Category column** if yours are not named `product` and `category`. A file without one of them shows that breakdown as unavailable, with the reason. Labels that differ only by case or spacing, and products filed under more than one category, are flagged, never merged.
 10. **Analyze another file** or **Clear results** to start over. The results on this page stay until then (also while you browse saved datasets), but disappear when the page is reloaded. Saved datasets are not affected by clearing.
-11. **Browse saved datasets.** Open **Saved datasets** in the header to see every saved file. Open one to see its details (rows, columns, stored-file status, SHA-256), its **analysis history** (newest first), and any recorded result exactly as it was stored. From there you can run a new data-quality check, calculate metrics or trends, rank products, find insights (with a different column mapping, grain, date, product, or category column if needed), or **delete the dataset**, which asks for confirmation first.
+11. **Browse saved datasets.** Open **Saved datasets** in the header to see every saved file. Open one to see its details (rows, columns, stored-file status, SHA-256), its **analysis history** (newest first), and any recorded result exactly as it was stored. From there you can run a new data-quality check, calculate metrics or trends, rank products, find insights (with a different column mapping, grain, date, product, or category column if needed), ask for an optional AI summary of saved key findings (see below), or **delete the dataset**, which asks for confirmation first.
 
 **Duplicate uploads.** Saving a file whose content is already in the library (even under another name) does not store a second copy. The page says **Already in the dataset library**, names the existing dataset, and adds the new results to its history.
 
@@ -141,6 +141,7 @@ python -m app.storage.database
 | `0002_allow_trends_analyses.sql` | Allows the analysis kind `trends`. SQLite can't change a `CHECK` constraint in place, so the `analyses` table is rebuilt: every row is copied with its id, the id counter is carried over (ids of deleted analyses are still never reused), and the index is recreated. Existing profile and metrics history is unchanged and stays readable. |
 | `0003_allow_performance_analyses.sql` | Allows the analysis kind `performance`, with the same rebuild steps as 0002. Tested on a version-2 library holding profile, metrics, and trends history: every record stays readable and unchanged, and the id counter carries over. |
 | `0004_allow_insights_analyses.sql` | Allows the analysis kind `insights`, with the same rebuild steps. Tested on a version-3 library holding profile, metrics, trends, and performance history. |
+| `0005_create_narrations.sql` | Adds the `narrations` table for optional AI summaries (one row per attempt). It references `datasets`, not `analyses`: adding an analysis kind rebuilds `analyses`, which would otherwise delete every summary through the cascade. Summaries are deleted with their dataset. |
 
 An existing library is upgraded automatically the next time the backend opens it.
 
@@ -318,6 +319,32 @@ curl.exe -F "file=@my_sales.csv" http://127.0.0.1:8000/api/uploads/csv/insights
 curl.exe -F "file=@my_sales.csv" -F "grain=week" -F "order_date_column=Day" http://127.0.0.1:8000/api/uploads/csv/insights
 ```
 
+### Optional AI summary (local Ollama)
+
+Off by default; everything above works without it. When turned on, the page of a **saved** key-findings analysis shows **Write a summary**: a model running on your own computer rewrites the findings as 2 to 4 sentences.
+
+**Turn it on (free):**
+1. Install [Ollama](https://ollama.com) and pull a small model: `ollama pull llama3.2:3b` (about 2 GB).
+2. In `backend/.env`: `INSIGHTS_NARRATOR=ollama` (and `OLLAMA_MODEL` if you pulled a different model).
+3. Restart the backend. `GET /api/insights/narrator` says whether it is ready, and if not, what to do.
+
+**What it sees.** Only the findings' own sentences, titles, importance, coverage dates, and file caveats. Never CSV rows, order IDs, column names, line numbers, or not-assessed reasons. `OLLAMA_URL` must point to this computer (localhost); any other address is refused at startup, so nothing leaves the machine. Findings are passed as a quoted data block, and the instructions tell the model to treat them as data, not instructions.
+
+**Its text is untrusted.** It is shown only if it passes every check:
+- every number and every quoted product or category name appears in the findings;
+- no claim of a cause ("because", "due to", "driven by", ...) and no prediction ("will", "likely to", "forecast", ...);
+- plain text only (no links, markdown, or HTML) and at most 900 characters.
+
+Otherwise the page shows the **template summary** (the top findings' own sentences) and says why. Every attempt is recorded in the `narrations` table with the provider, model, prompt version (`narration-v1`), status (`accepted`, `rejected`, or `failed`), and the reasons. A rejected reply is kept for audit and never shown.
+
+| Request | Result |
+| --- | --- |
+| `GET /api/insights/narrator` | 200 `{"enabled", "provider", "model", "available", "reason"}`. No URLs or keys. |
+| `GET /api/datasets/{id}/analyses/{analysis_id}/narrations` | 200 `{"narrations": [...]}`, newest first. 404 for an unknown dataset or analysis. |
+| `POST /api/datasets/{id}/analyses/{analysis_id}/narrations` | 201: the recorded attempt, with `text` to show and `source` (`ai` or `template`). 409 when no narrator is configured or reachable, or one is already running for this analysis; 422 when the analysis is not key findings; 404 as above. |
+
+**Cost and speed.** $0: no account, no key, no cloud. On a laptop CPU (for example a Ryzen 7 5700U with integrated graphics) a 3B model takes roughly 20 to 60 seconds per summary; `OLLAMA_TIMEOUT_SECONDS` (default 120) limits the wait. Small models often paraphrase loosely; when they do, the checks reject the text and the template is shown, by design.
+
 ### Dataset library endpoints
 
 These keep the file (see [Saved datasets: what is stored, and where](#saved-datasets-what-is-stored-and-where)). The in-memory endpoints above never store anything.
@@ -365,9 +392,9 @@ npm run build
 cd ..
 ```
 
-The backend tests use a temporary data directory, so they never touch `backend/data/`. They cover the migrations (fresh database, re-runs, rollback of a failed migration, concurrent first use, and upgrading real version-1, -2, and -3 libraries, with their earlier history, without losing or changing anything), the key findings (each finding's exact wording, complete-period rules, partial first and last periods, too few periods or rows, zero and negative baselines, streaks, unusual periods, movers, concentration, negative revenue, missing columns, fixed ordering, and a check that no text claims a cause), the product and category rankings (trimming, blank labels, case and spacing variants, products in several categories, ranking and ties, shares, missing columns, the 1,000-group cap and its summary, overflow, mappings), the sales trends (daily, weekly, and monthly grouping, the date rule checked against the data-quality check's, invalid and mixed dates, gaps, negative revenue, overflow, mappings), the file store (hash-named files, integrity checks, path safety), the dataset rules (duplicates, rejected files, history, deletion, a missing stored file), and every dataset endpoint, plus a check that the in-memory endpoints never write anything.
+The backend tests use a temporary data directory, so they never touch `backend/data/`. They cover the migrations (fresh database, re-runs, rollback of a failed migration, concurrent first use, and upgrading real version-1, -2, and -3 libraries, with their earlier history, without losing or changing anything), the key findings (each finding's exact wording, complete-period rules, partial first and last periods, too few periods or rows, zero and negative baselines, streaks, unusual periods, movers, concentration, negative revenue, missing columns, fixed ordering, and a check that no text claims a cause), the optional narrator (what it is sent, with no rows, order IDs, or line numbers; the output checks for numbers, names, causes, predictions, and markup; accepted, rejected, and failed attempts; the template fallback; one narration at a time; localhost-only settings; and the Ollama adapter against a stand-in server on localhost, with no model or internet needed), the product and category rankings (trimming, blank labels, case and spacing variants, products in several categories, ranking and ties, shares, missing columns, the 1,000-group cap and its summary, overflow, mappings), the sales trends (daily, weekly, and monthly grouping, the date rule checked against the data-quality check's, invalid and mixed dates, gaps, negative revenue, overflow, mappings), the file store (hash-named files, integrity checks, path safety), the dataset rules (duplicates, rejected files, history, deletion, a missing stored file), and every dataset endpoint, plus a check that the in-memory endpoints never write anything.
 
-The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs, form fields, JSON bodies, status codes, error messages), page routing, column-mapping rules, file checks, number and date formatting, history descriptions, metric labels, and the sales-trend helpers (period labels without time-zone shifts, the table's empty and unusable periods, chart scale, column geometry, and the screen-reader summary), and the product and category helpers (ranking with the backend's tie-break, the ranking choices for capped breakdowns, labels, shares, and the bar chart's scale), and the key-findings helpers (summaries, coverage text, date ranges, grouping by importance, the safeguards in plain words, and evidence formatting). They run in Node and don't need the backend.
+The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs, form fields, JSON bodies, status codes, error messages), page routing, column-mapping rules, file checks, number and date formatting, history descriptions, metric labels, and the sales-trend helpers (period labels without time-zone shifts, the table's empty and unusable periods, chart scale, column geometry, and the screen-reader summary), and the product and category helpers (ranking with the backend's tie-break, the ranking choices for capped breakdowns, labels, shares, and the bar chart's scale), and the key-findings helpers (summaries, coverage text, date ranges, grouping by importance, the safeguards in plain words, and evidence formatting), and the AI-summary labels (when the panel is hidden, unavailable, or ready, and how accepted, rejected, and failed summaries are described). They run in Node and don't need the backend.
 
 ## Known limitations
 
@@ -383,6 +410,7 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 - **Column mapping can't switch a role off.** A column named exactly like a role (for example `revenue`) is always used for that role.
 - **Trends only read `YYYY-MM-DD` dates.** Timestamps (`2026-01-05 10:00`) and other formats are excluded and counted, not converted, so there is no time-zone handling. Weeks are ISO weeks (Monday to Sunday); fiscal calendars are not supported. At most 2,000 periods are returned.
 - **Key findings are deliberately simple.** They compare the last two complete periods only, look for unusual periods with a single robust rule, and don't model seasonality or forecast. The safeguards are fixed values (see `thresholds`), and the wording is English templates. Findings describe what changed; explaining why is left to you.
+- **The AI summary is optional and checked, not verified.** The checks catch invented numbers, unknown quoted names, causal and predictive wording, and markup. They can't judge emphasis or tone, and unquoted names are not checked. It only runs on saved key findings, needs Ollama on the same computer, and is slow on a CPU. Gemini is not implemented.
 - **Product and category labels are compared as exact text.** Variants are flagged but never merged, so `Green Tea` and `green tea` are ranked separately until the file is fixed. There is no product hierarchy (subcategories) and no per-product average price or margin. At most 1,000 groups are listed per breakdown.
 - **Trends and rankings follow the metrics' column mapping on the Analyze page.** The grain and the date column are chosen in the Sales trends section; the other roles come from **Map columns** in Retail metrics. The product and category columns are chosen in their own section. In library mode, every change records a new analysis, and each upload records five.
 - **Large files take a few seconds.** For a file near 10 MB, the data-quality and metrics steps each took about 4 seconds on the development laptop.
@@ -404,7 +432,8 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 
 - Backend settings live in `backend/.env` (copied from `backend/.env.example`). `.env` is ignored by Git.
 - `DATA_DIR` (default `data`, relative to `backend/`) is where saved datasets live. Absolute paths work too, for example `DATA_DIR=C:/InsightFlowData`.
-- `GEMINI_API_KEY` is read **only by the backend**. Never put API keys in `frontend/`. Anything in frontend code is downloaded by every browser that opens the app.
+- `INSIGHTS_NARRATOR` (default `none`), `OLLAMA_URL` (must be localhost), `OLLAMA_MODEL`, and `OLLAMA_TIMEOUT_SECONDS` control the optional AI summary. Nothing is needed when it is off.
+- `GEMINI_API_KEY` is reserved and not used yet. Like any key, it is read **only by the backend**. Never put API keys in `frontend/`. Anything in frontend code is downloaded by every browser that opens the app.
 
 ## Project structure
 
@@ -422,6 +451,12 @@ Insightflow/
 │  │  ├─ ingestion/profiler.py    # Read-only data-quality report
 │  │  ├─ analytics/duckdb_loader.py   # Loads validated rows into in-memory DuckDB, as text
 │  │  ├─ analytics/retail_metrics.py  # Retail metrics in SQL, only when columns exist
+│  │  ├─ analytics/sales_trends.py    # Revenue, orders, and AOV by day, week, or month
+│  │  ├─ analytics/product_performance.py  # Product and category rankings (1,000-group cap)
+│  │  ├─ analytics/insights.py        # Deterministic key findings with safeguards
+│  │  ├─ analytics/evidence.py        # Shared "(lines 4, 7, ...)" evidence for notes
+│  │  ├─ narration/       # Optional local AI summary: facts, prompt, output checks, Ollama, records
+│  │  ├─ api/narration.py # Narrator status and summaries of saved key findings
 │  │  ├─ datasets/service.py  # Library rules: duplicates, storing, analyzing, history, deleting
 │  │  ├─ datasets/models.py   # Response shapes for datasets and analysis records
 │  │  ├─ storage/database.py  # SQLite connection + migration runner (python -m app.storage.database)
@@ -437,6 +472,7 @@ Insightflow/
 │  │  ├─ api/health.ts                # GET /api/health
 │  │  ├─ api/uploads.ts               # The three in-memory upload endpoints + response types
 │  │  ├─ api/datasets.ts              # The dataset library endpoints + response types
+│  │  ├─ api/narration.ts             # The optional AI-summary endpoints
 │  │  ├─ lib/                         # Pure logic: routes, column mapping, file checks, formatting, labels
 │  │  ├─ hooks/useBackendStatus.ts    # Tracks checking / connected / error state
 │  │  ├─ hooks/useCsvAnalysis.ts      # Upload → validate (and save) → profile + metrics workflow
@@ -469,12 +505,12 @@ Separation of responsibilities:
 - `backend/app/datasets/` — the dataset library's rules (what counts as a duplicate, when a file is stored, how analyses are recorded). It reuses the same parser, profiler, and metrics code as the in-memory endpoints.
 - `backend/app/storage/` — persistence only: SQLite (schema, migrations, parameterized SQL) and the stored files.
 - `frontend/src/` — displays what the API returns and never recalculates metrics. It only adds up the per-column counts for the summary tiles. The backend stays authoritative for every validation rule.
-- `backend/app/ai/` — *(planned, not built yet)* an AI provider interface, so Gemini can be swapped or mocked in tests
+- `backend/app/narration/` — the optional AI summary. A `Narrator` protocol (Ollama today; Gemini could implement it later), the facts it may see, the prompt, the output checks, and the record of every attempt. Tests use a fake narrator, so no model is needed.
 
 ## Roadmap
 
 1. ✅ Project foundation
 2. ✅ CSV import and data-quality validation (upload UI, structure check, quality report, saved datasets with analysis history)
 3. 🔄 Retail KPIs (quantity, gross sales/revenue, orders, AOV done, with dashboard) and profitability analysis (not started)
-4. Evidence-backed change investigations
+4. ✅ Evidence-backed key findings (deterministic), with an optional local AI summary
 5. Natural-language questions answered with verifiable SQL

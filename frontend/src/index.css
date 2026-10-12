@@ -1642,6 +1642,48 @@ a.button-ghost {
   text-align: right;
 }
 
+/* ---------- AI summary (optional) ---------- */
+
+.narration {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.narration-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.narration-text {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  background: var(--gray-25);
+}
+
+/* AI-written text is labelled in words; the rule only reinforces it. */
+.narration-text.is-ai {
+  border-left: 3px solid var(--chart-series);
+}
+
+.narration-heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.narration-text > p:first-of-type {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Dataset library ---------- */
 
 .link-button {

@@ -5,9 +5,11 @@ All configuration lives here so the rest of the code never reads
 if a settings object is ever printed or logged.
 """
 
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,8 +34,31 @@ class Settings(BaseSettings):
     # database <data_dir>/insightflow.db. Relative paths are relative to backend/.
     data_dir: Path = BACKEND_DIR / "data"
 
-    # Reserved for the AI phase. Read on the backend only; never sent to the browser.
+    # Reserved for a possible later Gemini narrator. Read on the backend only; never sent to the browser.
     gemini_api_key: SecretStr | None = None
+
+    # Optional AI summary of the key findings. "none" (the default) turns it off; the findings work without it.
+    # "ollama" uses a model running on this computer through Ollama (free; nothing leaves the machine).
+    insights_narrator: Literal["none", "ollama"] = "none"
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.2:3b"
+    ollama_timeout_seconds: float = Field(default=120, gt=0, le=600)
+
+    @field_validator("ollama_url")
+    @classmethod
+    def _ollama_on_this_computer(cls, value: str) -> str:
+        # The narrator is sent sales figures and product names: they must not leave this machine.
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        local = host == "localhost"
+        if not local:
+            try:
+                local = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                local = False
+        if parsed.scheme not in ("http", "https") or not local:
+            raise ValueError("OLLAMA_URL must point to Ollama on this computer, such as http://127.0.0.1:11434.")
+        return value
 
     @field_validator("data_dir")
     @classmethod
