@@ -33,7 +33,7 @@ cd backend
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt   # the app's pinned packages plus the test tools
 Copy-Item .env.example .env
 cd ..
 ```
@@ -122,7 +122,8 @@ Nothing is stored unless you save it. When you do, two things are kept on the ma
 | Dataset metadata and every analysis result | `DATA_DIR/insightflow.db` (SQLite) | `datasets`: name, hash, size, rows, columns, saved time. `analyses`: kind, column mapping, the full result as returned, the InsightFlow version, time. |
 
 - **How long:** until you delete the dataset. Deleting removes the stored file and then the metadata and the whole history (the database deletes a dataset's analyses with it).
-- **Not backed up, not synced, not uploaded anywhere else.** Copying `DATA_DIR` is the backup. Deleting `DATA_DIR` removes everything; the schema is recreated on the next start.
+- **Not backed up automatically, not synced, not uploaded anywhere else.** Deleting `DATA_DIR` removes everything; the schema is recreated on the next start.
+- **Backups:** `python -m app.storage.backup create --dest <folder outside DATA_DIR>` (from `backend/`, venv active) writes a checked copy of the database and every stored file, safely even while the app runs. Don't copy `insightflow.db` by hand while the backend is running: a copy taken mid-write can be inconsistent. `verify <backup folder>` checks a backup, and `restore <backup folder> --target <new or empty folder>` rebuilds a library from it, never over existing data. `prune --dest <folder>` shows which old backups the retention policy would delete, and deletes them only with `--apply`. Exit codes: `0` complete, `2` valid but incomplete (some datasets' files were already missing), `1` failed. The checksums catch accidental damage, not deliberate tampering. Details in [deploy/README.md](deploy/README.md#backups).
 - **Integrity:** before every new analysis, the stored file is checked against its SHA-256 hash. If it went missing or changed on disk, the analysis is refused (HTTP 409), and the dataset page shows **Missing or changed**. Recorded results stay readable.
 - **Recorded results are snapshots.** A history entry shows the result exactly as computed when it ran, with the InsightFlow version that produced it. Re-running an analysis creates a new entry; it never edits an old one.
 - **Why SQLite:** it is built into Python (no extra package or server), and it enforces what this data needs: a unique content hash, foreign keys with cascading delete, and transactions. DuckDB stays the analytics engine.
@@ -393,13 +394,44 @@ npm run build
 cd ..
 ```
 
+### Python versions
+
+The backend supports **Python 3.12 and later**. Ubuntu 24.04, the planned server, ships 3.12. Development uses a newer Python, so `tests/test_python_compatibility.py` checks every file against Python 3.12's syntax, and flags annotations that only work with Python 3.14's lazy annotations. That check cannot catch a standard-library function added after 3.12. For that, the full suite must run on 3.12 itself: [.github/workflows/backend.yml](.github/workflows/backend.yml) does so on GitHub Actions for every push that changes `backend/`, and the deployment runbook runs it on the server ([deploy/README.md](deploy/README.md#deploying-a-release), step 4).
+
+### Dependencies
+
+| File | What it is |
+| --- | --- |
+| `backend/requirements.in` | The packages the app imports, pinned to the versions the tests passed with. Edit this one. |
+| `backend/requirements.txt` | Lock file: every runtime package (including indirect ones) at an exact version, for Python 3.12+ on Linux, Windows, and macOS. Installed on the server. |
+| `backend/requirements-dev.in`, `backend/requirements-dev.txt` | The same plus the test tools (`pytest`, `httpx2`). Installed for development and CI only. |
+
+After changing a `.in` file, regenerate the lock files with [uv](https://docs.astral.sh/uv/) (from `backend/`; it only resolves versions, it installs nothing), then install and run the tests:
+
+```powershell
+python -m pip freeze > $env:TEMP\tested.txt    # keep the versions you already tested where possible
+uv pip compile requirements.in --universal --python-version 3.12 -c $env:TEMP\tested.txt -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.12 -c $env:TEMP\tested.txt -o requirements-dev.txt
+```
+
+**Vulnerability audit.** `pip-audit` checks the lock files against the Python Packaging Advisory Database. It runs in its own temporary environment and changes nothing in the project:
+
+```powershell
+uvx pip-audit==2.9.0 -r requirements.txt
+uvx pip-audit==2.9.0 -r requirements-dev.txt
+```
+
+On Windows this skips the Linux-only `uvloop`; the CI workflow audits on Linux. Last run: see the Milestone 9.1 section of [docs/PRODUCTION_READINESS_AUDIT.md](docs/PRODUCTION_READINESS_AUDIT.md).
+
+### What the tests cover
+
 The backend tests use a temporary data directory, so they never touch `backend/data/`. They cover the migrations (fresh database, re-runs, rollback of a failed migration, concurrent first use, and upgrading real version-1, -2, and -3 libraries, with their earlier history, without losing or changing anything), the key findings (each finding's exact wording, complete-period rules, partial first and last periods, too few periods or rows, zero and negative baselines, streaks, unusual periods, movers, concentration, negative revenue, missing columns, fixed ordering, and a check that no text claims a cause), the optional narrator (what it is sent, with no rows, order IDs, or line numbers; the output checks for numbers, names, causes, predictions, and markup; accepted, rejected, and failed attempts; the template fallback; one narration at a time; localhost-only settings; and the Ollama adapter against a stand-in server on localhost, with no model or internet needed), the product and category rankings (trimming, blank labels, case and spacing variants, products in several categories, ranking and ties, shares, missing columns, the 1,000-group cap and its summary, overflow, mappings), the sales trends (daily, weekly, and monthly grouping, the date rule checked against the data-quality check's, invalid and mixed dates, gaps, negative revenue, overflow, mappings), the file store (hash-named files, integrity checks, path safety), the dataset rules (duplicates, rejected files, history, deletion, a missing stored file), and every dataset endpoint, plus a check that the in-memory endpoints never write anything.
 
 The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs, form fields, JSON bodies, status codes, error messages), page routing, column-mapping rules, file checks, number and date formatting, history descriptions, metric labels, and the sales-trend helpers (period labels without time-zone shifts, the table's empty and unusable periods, chart scale, column geometry, and the screen-reader summary), and the product and category helpers (ranking with the backend's tie-break, the ranking choices for capped breakdowns, labels, shares, and the bar chart's scale), and the key-findings helpers (summaries, coverage text, date ranges, grouping by importance, the safeguards in plain words, and evidence formatting), and the AI-summary labels (when the panel is hidden, unavailable, or ready, and how accepted, rejected, and failed summaries are described). They run in Node and don't need the backend.
 
 ## Known limitations
 
-- **Storage is local and single-user.** Saved files and the database live on the machine running the backend. There are no user accounts, no backups, no sync, and no storage quota or pagination (fine for a personal library, not for a shared server).
+- **Storage is local and single-user.** Saved files and the database live on the machine running the backend. There are no user accounts, no automatic backups on your own computer (backups are a command; the server runbook schedules them), no sync, and no storage quota or pagination. That is fine for a personal library, not for a shared server.
 - **In-memory analysis uploads the file 6 times** (once per step, and again whenever the trends' grain or date column, or the product or category column, changes), and its results disappear when the page is reloaded. Saved datasets upload once and keep their results.
 - **Recorded results are not recalculated.** A history entry keeps the result its InsightFlow version produced. If the rules change in a later version, re-run the analysis to get a new entry.
 - **Datasets can't be renamed or replaced.** To change a saved file, save the new version (a different content hash creates a new dataset) and delete the old one.
@@ -426,16 +458,18 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 | `No module named 'app'` | Command run from the wrong folder | `cd backend` first |
 | `uvicorn` / `pytest` not recognized | venv not activated | `.\.venv\Scripts\Activate.ps1` |
 | Slow installs or "file in use" errors | OneDrive is syncing `node_modules` / `.venv` | Pause OneDrive sync, or move the project to e.g. `C:\dev\Insightflow` |
-| A saved dataset shows **Missing or changed** / HTTP 409 | Its stored file in `DATA_DIR/uploads/` was deleted or edited outside InsightFlow | Delete the dataset in the app and save the file again |
+| A saved dataset shows **Missing or changed** / HTTP 409 | Its stored file in `DATA_DIR/uploads/` was deleted or edited outside InsightFlow | To keep its history, put the identical original back as `DATA_DIR/uploads/<sha256>.csv` (from your own copy or a backup's `uploads/`). Saving the same file again through the page does **not** repair it. Otherwise delete the dataset in the app and save the file again as a new dataset. Steps: [deploy/README.md](deploy/README.md#repairing-a-dataset-whose-stored-file-is-missing) |
 | `database is locked` | Another program (or a sync tool) holds `insightflow.db` | Close it, or set `DATA_DIR` outside synced folders |
 
 ## Configuration and secrets
 
 - Backend settings live in `backend/.env` (copied from `backend/.env.example`). `.env` is ignored by Git.
 - `DATA_DIR` (default `data`, relative to `backend/`) is where saved datasets live. Absolute paths work too, for example `DATA_DIR=C:/InsightFlowData`.
-- `APP_ENV=production` turns off the interactive API docs (`/docs`, `/redoc`, `/openapi.json`).
+- `APP_ENV=production` turns off the interactive API docs (`/docs`, `/redoc`, `/openapi.json`) and requires `ALLOWED_HOSTS`.
+- `ALLOWED_HOSTS` lists the host names the API answers, comma-separated and without ports (for example `insightflow.example.org,127.0.0.1`). A request with any other `Host` header gets `400 Invalid host header`. When it is not set, outside production, the API answers only this computer's names (`localhost`, `127.0.0.1`, `[::1]`, and `testserver` for the tests). In production it must be set, and wildcards are refused; an invalid value stops the server at startup.
+- **Cross-site requests** that would change something (any method but `GET`, `HEAD`, `OPTIONS`) get `403` when the browser marks them as coming from another site (`Sec-Fetch-Site`), or their `Origin` is not the page's own (`http://localhost:5180` in development). Requests without either header (curl, scripts) are allowed. No setting is needed. The rules are in [deploy/README.md](deploy/README.md#cross-site-protection).
 - `DUCKDB_THREADS` (default 2) and `DUCKDB_MEMORY_LIMIT` (default `1GB`, at least `64MB`) limit each analysis. Several analyses can run at once, each with these limits. Data over the memory limit is spilled to the request's own temporary folder and deleted afterwards; an analysis that still does not fit returns 413.
-- Before deploying anywhere other than your own computer, read [docs/PRODUCTION_READINESS_AUDIT.md](docs/PRODUCTION_READINESS_AUDIT.md): there is no authentication, and the deployment-blocker checklist must be completed first.
+- Before deploying anywhere other than your own computer, read [docs/PRODUCTION_READINESS_AUDIT.md](docs/PRODUCTION_READINESS_AUDIT.md): there is no authentication in the app, and the deployment-blocker checklist must be completed first. [deploy/README.md](deploy/README.md) is the runbook and templates for an **owner-only** deployment (nginx sign-in in front of the whole site). It is not safe for public or untrusted users.
 - `INSIGHTS_NARRATOR` (default `none`), `OLLAMA_URL` (must be localhost), `OLLAMA_MODEL`, and `OLLAMA_TIMEOUT_SECONDS` control the optional AI summary. Nothing is needed when it is off.
 - `GEMINI_API_KEY` is reserved and not used yet. Like any key, it is read **only by the backend**. Never put API keys in `frontend/`. Anything in frontend code is downloaded by every browser that opens the app.
 
@@ -449,6 +483,7 @@ Insightflow/
 │  │  ├─ config.py        # Settings loaded from .env (secrets stay here)
 │  │  ├─ api/health.py    # GET /api/health
 │  │  ├─ api/csv_upload.py  # Request checks shared by every CSV upload (field, .csv name, size)
+│  │  ├─ api/cross_site.py  # Refuses state-changing requests sent from another website (403)
 │  │  ├─ api/uploads.py   # POST /api/uploads/csv, /csv/profile, /csv/metrics (in memory, nothing stored)
 │  │  ├─ api/datasets.py  # /api/datasets: save, list, details, delete, analyses, history
 │  │  ├─ ingestion/csv_parser.py  # CSV content validation (no FastAPI code)
@@ -466,10 +501,14 @@ Insightflow/
 │  │  ├─ storage/database.py  # SQLite connection + migration runner (python -m app.storage.database)
 │  │  ├─ storage/migrations/  # Numbered SQL schema files (0001_*.sql, ...)
 │  │  ├─ storage/repository.py  # SQL for datasets and analyses (parameterized)
-│  │  └─ storage/file_store.py  # Stored CSV files, named by SHA-256, verified on read
+│  │  ├─ storage/file_store.py  # Stored CSV files, named by SHA-256, verified on read
+│  │  └─ storage/backup.py  # Backup, verify, restore, prune (python -m app.storage.backup)
 │  ├─ tests/              # one test file per module, plus fixtures/ (sample CSVs)
-│  ├─ requirements.txt
+│  ├─ requirements.in / requirements.txt          # app packages / pinned lock file
+│  ├─ requirements-dev.in / requirements-dev.txt  # plus test tools
 │  └─ .env.example
+├─ deploy/                # Owner-only server runbook and templates (nginx, systemd, settings); nothing deployed
+├─ .github/workflows/backend.yml  # Backend tests on Python 3.12 and 3.14, dependency audit
 ├─ frontend/
 │  ├─ src/
 │  │  ├─ api/http.ts                  # Shared request sending, timeouts, and clear error messages

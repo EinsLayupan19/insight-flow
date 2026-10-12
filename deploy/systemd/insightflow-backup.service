@@ -1,0 +1,51 @@
+# Nightly backup of the dataset library (run by insightflow-backup.timer). TEMPLATE; see deploy/README.md, "Backups".
+# The app can keep running: the database is copied with SQLite's online backup API and every stored file is
+# re-hashed while it is copied.
+#
+# Exit codes of `python -m app.storage.backup create`: 0 done; 1 failed (nothing written, for example not enough
+# free space); 2 backup written, but some datasets' stored files were missing or changed. 2 is left as a failure
+# on purpose, so it is visible like any other failure (see "Alerts" in deploy/README.md).
+
+[Unit]
+Description=InsightFlow backup (database and stored CSV files)
+RequiresMountsFor=/var/lib/insightflow /var/backups/insightflow
+# On any failure, including the timeout below, record it for the login message (insightflow-backup-failed.service).
+OnFailure=insightflow-backup-failed.service
+
+[Service]
+Type=oneshot
+User=insightflow
+Group=insightflow
+WorkingDirectory=/opt/insightflow/current/backend
+EnvironmentFile=/etc/insightflow/insightflow.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/insightflow/current/backend/.venv/bin/python -m app.storage.backup create --dest /var/backups/insightflow
+# Retention: by default this only PRINTS which old backups the policy would delete (to the journal). Add --apply
+# once you have read a few of these previews and agree with them. The newest backup that verifies cleanly is never
+# deleted, and nothing is deleted if no backup verifies cleanly (that also fails the job).
+ExecStartPost=/opt/insightflow/current/backend/.venv/bin/python -m app.storage.backup prune --dest /var/backups/insightflow --keep-daily 14 --keep-monthly 12
+# Reached only when everything above succeeded: clear an earlier failure notice.
+ExecStartPost=/usr/bin/rm -f /var/lib/insightflow-status/backup-failed
+
+# A backup of a small library takes seconds; 45 minutes means something is stuck (for example a database lock that
+# is never released). systemd then sends SIGTERM: the job removes its unfinished folder and exits. If it does not
+# stop within TimeoutStopSec it is killed, which can leave a ".insightflow-backup-...partial-..." folder behind;
+# it never has a final backup name, and prune reports and removes it a day later. The live library is only ever
+# read, so stopping the job cannot damage it. A timeout is logged ("Failed with result 'timeout'") and triggers
+# OnFailure like any other failure.
+TimeoutStartSec=45min
+TimeoutStopSec=60s
+Nice=10
+IOSchedulingClass=idle
+
+# The library is read-only for this job: it can read the data, never change it.
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/insightflow
+ReadWritePaths=/var/backups/insightflow /var/lib/insightflow-status
+PrivateTmp=true
+ProtectHome=true
+PrivateDevices=true
+PrivateNetwork=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+UMask=0077

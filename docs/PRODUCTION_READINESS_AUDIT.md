@@ -1,7 +1,7 @@
 # InsightFlow production readiness audit
 
-**Status:** Phases A to D complete. The approved fixes are implemented with regression tests and verified (section 5); the remaining findings are open and listed with their remediation. **Not committed.**
-**Audited commit:** `fb82dcd` on `master` (in sync with `insightflow/master`, clean working tree).
+**Status:** Phases A to D complete and committed in `8d52ea0`. Milestone 9.1 (repository preparation for an owner-only deployment, section 11) is in the working tree, **not committed**. Remaining findings are open and listed with their remediation.
+**Audited commit:** `fb82dcd` on `master` (Milestone 8); Milestone 9.1 builds on `8d52ea0`.
 **Scope:** backend (FastAPI, DuckDB, SQLite, file store, narration), frontend (React/Vite), configuration, dependencies, and deployment assumptions.
 **Method:** code reading plus local experiments in a scratch directory (never the project's `backend/data`). Each finding says whether it is **confirmed** (reproduced or read directly in the code that runs) or **needs verification**.
 
@@ -27,7 +27,7 @@ InsightFlow is a **single-user, local-first** app. On the default setup (backend
 | F10 | History grows without bound; listing parses every stored result | Low | Open |
 | F11 | Migrations re-run on every database open | Low | Open |
 | F12 | Health endpoint is liveness only; no readiness check | Low | **Fixed** (`/api/health/ready`) |
-| F13 | Python dependencies unpinned, test tools in runtime requirements, no Python vulnerability scan | Low | Open |
+| F13 | Python dependencies unpinned, test tools in runtime requirements, no Python vulnerability scan | Low | **Fixed** (Milestone 9.1: lock files, dev split, `pip-audit`) |
 | F14 | Narration "one at a time" guard is per process | Low | Open (documented) |
 | F15 | Data at rest is unencrypted with no retention policy | Info | Open (documented) |
 | F16 | No column-count limit (wide files are costly beyond the header check) | Medium | **Fixed** (at most 1,000 columns) |
@@ -241,15 +241,18 @@ Documentation: `README.md` (readiness check, docs off in production, the 1,000-c
 - [x] **Quadratic header check (F2)** and **column limit (F16):** fixed and tested.
 - [ ] **Event-loop and GIL contention (F3, F7):** parsing moved off the event loop; heavy files still slow other requests. Acceptable for one user; needs a process pool or single-pass analysis for several.
 - [x] **Body size limit in the app (F4):** enforced while receiving and verified on a real server.
-- [ ] **Body size limit at the reverse proxy (F4):** still required in production.
-- [ ] **Serving (F6):** a documented same-origin setup for `frontend/dist` and `/api`; CORS only if needed, with an allow-list. *Blocker.*
+- [ ] **Body size limit at the reverse proxy (F4):** still required in production. *Template ready* (`deploy/nginx/insightflow-https.conf`), not yet applied on a server.
+- [ ] **Serving (F6):** a documented same-origin setup for `frontend/dist` and `/api`; CORS only if needed, with an allow-list. *Blocker.* *Documented* (`deploy/README.md`: nginx serves `dist`, proxies `/api`; same origin, no CORS), not yet applied on a server.
+- [x] **Host header allow-list:** `ALLOWED_HOSTS` (`TrustedHostMiddleware`), required and wildcard-free in production (Milestone 9.1).
+- [x] **Backups:** consistent backup, verify, and restore (`python -m app.storage.backup`), tested (Milestone 9.1). Restore copies only verified bytes; retention preview and prune; failure notices (section 12). The server schedule is a template.
+- [x] **Cross-site requests:** refused by the app (`CrossSiteRequestGuard`) and, in the template, by nginx (section 12).
 - [ ] **Storage:** `DATA_DIR` on persistent, backed-up, non-synced storage; disk encryption and permissions on the host (F15).
 - [x] **DuckDB limits (F8, F17, F18):** threads, memory, spill location, and output configured and tested.
 - [ ] **Timeouts and rate limits (F8):** at the reverse proxy.
 - [x] **Readiness (F12):** `/api/health/ready`.
 - [x] **Docs off in production (F9):** with `APP_ENV=production`.
 - [ ] **Operations:** start command without `--reload`; a single worker (F14) or a database-backed narration lock; startup migrations (F11); history pagination (F10).
-- [ ] **Dependencies (F13):** split dev requirements, pin runtime versions, run `pip-audit`.
+- [x] **Dependencies (F13):** split dev requirements, pin runtime versions, run `pip-audit` (Milestone 9.1; see section 11).
 
 ## 8. Phase A verification log
 
@@ -299,3 +302,72 @@ An independent pass over the working tree before committing. Code checked agains
 | DuckDB memory values: startup validation vs DuckDB | 18 values tried: everything `Settings` accepts (for example `1GB`, `1 GB`, `1.5GB`, `512MiB`, `1gb`, `2TB`, `64000000B`) is accepted by DuckDB; `63MB`, `10KB`, `1,000MB`, `1e9B`, and `1G` are refused at startup | Consistent; invalid values stop the server at startup because `create_app()` reads the settings on import |
 | `create_app(settings)` docstring | Claimed every route uses `settings`; DuckDB limits are read from `get_settings()` | **Corrected** (comment only, no behaviour change) |
 | This document's lifecycle section | Described the Phase A behaviour as current | **Corrected** (section 2) |
+
+## 11. Milestone 9.1: repository preparation for an owner-only deployment
+
+Local preparation only: nothing was provisioned, registered, or deployed. Target: one Oracle Cloud Always Free VM (Ubuntu 24.04), owner-only access through nginx sign-in, shared dataset library. **This is not per-user authorization (F5 stays open), and the app is not safe for public or untrusted users.**
+
+| Change | Files | Evidence |
+| --- | --- | --- |
+| Pinned dependencies (F13): `requirements.in` (direct, pinned to the tested versions) compiled with `uv pip compile --universal --python-version 3.12` into `requirements.txt` (every runtime package). Test tools moved to `requirements-dev.in` / `requirements-dev.txt`. No version changed. `uvloop==0.23.0` is new to the lock: Linux only, pulled in by `uvicorn[standard]`, never installed on the Windows development machine. | `backend/requirements*.{in,txt}` | `pip install --dry-run -r requirements-dev.txt` in the project venv: nothing to install (the venv already matches). Both lock files also resolve with wheels only for Python 3.12 on `aarch64-manylinux_2_28` and `x86_64-manylinux_2_28` (same versions). |
+| Vulnerability audit | (no file) | `uvx pip-audit==2.9.0 -r requirements.txt` and `-r requirements-dev.txt`: **No known vulnerabilities found** (2026-10-13, Windows, so `uvloop` was skipped there); `uvloop==0.23.0` audited separately (`--no-deps --disable-pip`): none found. The CI workflow repeats the audit on Linux. |
+| Python 3.12 compatibility | `backend/tests/test_python_compatibility.py`, `.github/workflows/backend.yml` | Every backend and test file parses with Python 3.12's grammar, and no eagerly evaluated annotation names something defined later (works on 3.14, fails on 3.12). The checks catch both, shown by a self-test. A search for standard-library APIs added after 3.12 found none. **The suite has not run on Python 3.12**: only 3.14 is installed locally. The workflow (GitHub Actions; unrun until pushed) and the runbook's server step run it on 3.12. |
+| Host header allow-list | `backend/app/config.py`, `backend/app/main.py` | `ALLOWED_HOSTS`, comma-separated, validated at startup (host names, IPv4, `[IPv6]`; no scheme, port, or path). Required in production, and wildcards are refused there. The default outside production is `localhost`, `127.0.0.1`, `[::1]`, `testserver`. `TrustedHostMiddleware` is the outermost layer (runs before the body limit), with `www_redirect=False`. `test_host_headers.py`: 34 tests. |
+| Backup, verify, restore | `backend/app/storage/backup.py` | SQLite online backup API (read-only source) plus the stored files the snapshot refers to, each re-hashed. `manifest.json`, `SHA256SUMS`, integrity and foreign-key checks, temporary name, then rename. Never overwrites or deletes a backup; restore only into a new or empty folder; a backup from a newer schema is refused. `test_backup.py`: 28 tests, all on temporary folders. |
+| Production error messages | `frontend/src/api/http.ts`, `health.ts`, `lib/errors.ts`, `hooks/useBackendStatus.ts` | The production build names no ports, files, or internals, and says what to do (network, proxy 502/503/504, 401, 413, 429, other 4xx, 5xx, unexpected responses). API messages for 4xx are still shown; 5xx details never are. Console diagnostics only in development. `http.test.ts`: 14 tests. In the built bundle, the development texts and console calls are absent. |
+| Deployment templates and runbook | `deploy/` | nginx (HTTP stage and HTTPS stage), systemd (app, backup service and timer), server settings, runbook (setup, host name, deploy, rollback, checks, backups, restore). Not tested against a live nginx or systemd. |
+
+**Tests adjusted, not weakened:** `test_production_config.py` (production now requires `ALLOWED_HOSTS`; the test passes `testserver`) and `test_request_limits.py` (requests used the host name `test`, now refused by design; they use `testserver`).
+
+**Mutation checks (Milestone 9.1):** each of these, disabled in turn, made at least one test fail; the files were restored byte for byte. Backups: the stored-file hash check, the checksum comparison, the "restore only into an empty folder" rule, removing the unfinished folder after a failure, the "outside DATA_DIR" rule, the newer-schema refusal, and the "every dataset accounted for" check (missed at first; a test was added). Hosts: `www_redirect=False`, the production requirement, and the production wildcard ban.
+
+**Real server (Uvicorn, scratch data folder, port 8013):** a production start with the template placeholder, or without `ALLOWED_HOSTS`, exits 1 naming `ALLOWED_HOSTS`. Allowed host names answer 200; `evil.example`, `localhost`, and the `www.` name answer 400. `/docs` is 404, and readiness is 200. A dataset was saved and analyzed. `python -m app.storage.backup create` ran **while the server was running** (exit 0), then `verify` (exit 0) and `restore` into a new folder (exit 0). A restore over the live library was refused (exit 1).
+
+| Command | Result |
+| --- | --- |
+| `backend/`: `.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` (Python 3.14.0) | **602 passed** |
+| `frontend/`: `npm test` | 15 files, **153 passed** |
+| `frontend/`: `npm run lint`, `npx tsc -b`, `npm run build` | exit 0 |
+| `uvx pip-audit==2.9.0` (runtime and dev lock files, plus `uvloop`) | No known vulnerabilities found |
+
+**Free host name:** Duck DNS was checked on its own pages and is documented as an option in `deploy/README.md`, with its terms and limits. Nothing was registered.
+
+## 12. Milestone 9.1 review fixes
+
+A skeptical review of section 11 found three high-priority defects and several smaller ones. All were fixed locally, test-first. Nothing was committed, provisioned, or deployed.
+
+| Finding | Fix | Files | Evidence |
+| --- | --- | --- | --- |
+| **Cross-site requests** (high): browsers send the proxy sign-in with forms other sites submit. A request with `Origin: https://evil.example` saved a dataset (201). | `CrossSiteRequestGuard`, between the host check and the body limit. For every method except GET, HEAD, and OPTIONS: `Sec-Fetch-Site` must be `same-origin` or `none` when present; `Origin` must be the request's own origin (scheme + `Host` checked by `ALLOWED_HOSTS`) when present; requests with neither (non-browser clients) pass. 403 before the body is read. nginx applies the same rules first. | `backend/app/api/cross_site.py`, `backend/app/main.py`, `deploy/nginx/insightflow-https.conf` | `test_cross_site.py`: 30 tests. Every state-changing endpoint is listed from the OpenAPI schema (10 today), each refused for a malicious Origin, cross-site Fetch Metadata, and both, with nothing saved, recorded, or deleted. Also `null`, malformed, other-scheme, other-port, `same-site`, and unknown values; same-origin, Origin-only, Fetch-Metadata-only, `none`, and header-less requests are allowed; GET/HEAD/OPTIONS are never blocked; the Vite dev proxy counts as same-origin; refusal before the body is read. Real Uvicorn with the systemd flags: page request 201; other Origin, cross-site, and https Origin without `X-Forwarded-Proto` all 403. A hand-written model of the nginx maps never allows what the app refuses (343 combinations); nginx itself was not run. |
+| **First release** (high): the runbook never created `/opt/insightflow/current`, and its pre-switch backup would fail on an empty server. | Step 5a (first release: create the link, no backup) and 5b (later releases: backup must succeed, then switch). The services and timer are enabled only after the link exists; readiness creates the empty database before the first backup. Rollback covers both cases. | `deploy/README.md` | Documentation; not run on a server. |
+| **Restore integrity** (high): a backup changed between verification and copying was restored. | Restore copies each file from a fresh read, hashed while written, and refuses it unless it matches the checksum just verified (not the folder's current bytes). Files are opened with `O_NOFOLLOW` where available and must be regular files. Symbolic links and special files anywhere in a backup are refused. | `backend/app/storage/backup.py` | Tests: an upload edited in place, an upload replaced by another file, and the database edited, each after verification: refused, with no target and no working folder left. Symlink and named-pipe tests skip on Windows (no privilege / no POSIX); they run on Linux in CI. |
+| Malformed manifest crashed with `TypeError` | Every manifest value is type- and shape-checked; errors name the field; exit 1, no traceback. Non-UTF-8 `manifest.json` or `SHA256SUMS` are clean errors too. | `backup.py` | 13 malformed cases (including the review's three), plus 2 encoding cases. |
+| Incomplete restore exited 0 | `verify` and `restore` exit 2 when datasets' files are missing from the backup (valid but incomplete), as `create` already did. | `backup.py` | CLI tests. |
+| Checksums were described as "integrity" without limits | Documented: SHA-256 detects accidental damage, not tampering. What tamper resistance needs: write-once or offline copies, or a signature with a key off the server. | `backup.py` docstring, `deploy/README.md`, `README.md` | Review experiment (b) stays true by design. |
+| Disk usage and retention | `create` refuses to start unless 5% of the disk stays free after the backup plus a 10% margin. `prune` keeps the newest backup of 14 backup-days and 12 months, the newest backup that verifies cleanly, and everything newer. It deletes nothing if none verifies; previews by default (`--apply` to delete); touches only exact backup names and stale unfinished folders. The backup job runs the preview after each backup. | `backup.py`, `deploy/systemd/insightflow-backup.service`, `deploy/README.md` | 11 retention tests, free-space test. |
+| No job timeout | `TimeoutStartSec=45min`, `TimeoutStopSec=60s`. SIGTERM is turned into a clean exit that removes the unfinished folder; a killed run's folder never gets a final name and is pruned after a day. | `insightflow-backup.service`, `backup.py` | SIGTERM-handler test; systemd behaviour not run. |
+| No failure alerts | `OnFailure=` writes a notice that the SSH login message shows until the next success, plus an error-level journal line. The login message also flags no backup in 2 days, a stopped API, and a 90% full backup disk. No email: documented as not configured. | `deploy/systemd/insightflow-backup-failed.service`, `deploy/motd/90-insightflow`, `deploy/README.md` | Not run on Linux. |
+
+**Mutation checks:** 16 mutations of the new safeguards (each cross-site check, the method list, origin parsing, the middleware registration, the verified-copy comparison, manifest type checks, the prune protections, preview-by-default, the free-space check, the SIGTERM handler, exit code 2, the stale-folder age, the retention windows) each made a test fail; the files were restored byte for byte.
+
+| Command (Python 3.14.0, Windows) | Result |
+| --- | --- |
+| `backend/`: `python -m pytest -q -p no:cacheprovider` | **669 passed, 4 skipped** (the skips need symlink privilege or POSIX) |
+| `frontend/`: `npm test`, `npm run lint`, `npx tsc -b`, `npm run build` | 153 passed; exit 0 |
+| `git diff --check` | exit 0 |
+
+**Still not verified:** Python 3.12; Linux; nginx (`nginx -t`, the maps, `if` in `location`); systemd (`systemd-analyze verify`, `OnFailure`, timeouts, `Asia/Manila` calendar); Ubuntu's login message; browsers sending `Origin`/`Sec-Fetch-Site` as assumed.
+
+## 13. Retention with incomplete backups (final-review follow-up)
+
+**Finding (medium, final review):** while any dataset's stored file was missing or changed, every nightly backup was valid but incomplete. Prune kept every backup newer than the last clean one (30 of 30 in an experiment), so disk use grew until the free-space check stopped backups. When the file was missing before the first backup, prune refused outright. The runbook did not say how to repair the cause.
+
+| Change | Files |
+| --- | --- |
+| Incomplete backups follow the retention windows like any other: old ones outside the windows are deleted while the newest clean backup is kept. Damaged backups newer than it are still kept for inspection, and the windows never pick a damaged backup in place of a valid one, so the most recent valid backup stays. With no clean backup, nothing is deleted (exit 1), and the message points to the repair. Preview stays the default; the windows (14 days, 12 months) are unchanged. | `backend/app/storage/backup.py` |
+| `prune --apply`: an OS lock per backup folder (`.insightflow-prune.lock`, released when the process ends), so a second prune exits 1 without deleting. The clean backup is checked again just before deleting. Each folder is renamed to `…deleting-…` before removal, so an interrupted prune never leaves a broken folder under a backup's name, and the next prune finishes it. | `backup.py` |
+| Owner recovery procedure: find affected datasets (backup warnings, or a read-only hash check of every stored file); put the identical original back from the owner's copy or a backup (keeps history; re-uploading through the page does not repair, because the app sees the content as already saved); or delete the dataset; then confirm with a successful backup. | `deploy/README.md` ("Repairing a dataset whose stored file is missing"), `README.md` (troubleshooting) |
+
+**Tests:** 7 new: old incomplete backups pruned with the clean one kept; the most recent valid (incomplete) backup kept; a damaged backup not taking a valid one's window slot; no clean backup means nothing deleted and the CLI exits 1 naming the repair; a second `prune --apply` refused while one runs (preview not blocked); nothing deleted if the clean backup changes between planning and deleting; an interrupted deletion leaves no folder under a backup name and is finished next time. Existing retention tests adjusted only to ignore the lock file and to use the split `damaged` list. 8 mutations of the new rules each made a test fail.
+
+**Limitations:** backups and restores do not take the prune lock (not needed: prune deletes only folders that existed when it planned; a restore from a folder being deleted fails without restoring). A backup deleted by hand is not guarded. On nights the backup exits 2, systemd skips the job's `prune` line, so while a dataset is broken the owner prunes by hand or repairs it. The POSIX lock path (`fcntl.flock`) was not run here (Windows uses `msvcrt.locking`); the Linux CI runs the same tests. The repair commands are Linux shell commands and were not run.

@@ -19,7 +19,7 @@ export function useBackendStatus() {
         if (!cancelled) setStatus({ kind: 'connected', health })
       },
       (error: unknown) => {
-        console.error('Backend health check failed:', error)
+        if (import.meta.env.DEV) console.error('Backend health check failed:', error) // diagnostics stay out of production
         const message = error instanceof Error ? error.message : 'Unknown error while checking the backend.'
         if (!cancelled) setStatus({ kind: 'error', message })
       },

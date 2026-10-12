@@ -1,0 +1,8 @@
+# Development and test tools, on top of the runtime lock file. Not installed on the server.
+# Regenerate requirements-dev.txt after editing (see "Dependencies" in the README):
+#   uv pip compile requirements-dev.in --universal --python-version 3.12 -c <tested versions> -o requirements-dev.txt
+-r requirements.txt
+
+# Testing (pytest runs tests; httpx2 powers FastAPI's TestClient)
+pytest==9.1.1
+httpx2==2.13.1

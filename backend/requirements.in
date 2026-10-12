@@ -1,0 +1,15 @@
+# Runtime dependencies: the packages the backend imports directly.
+# Edit this file, then regenerate the pinned lock file requirements.txt (see "Dependencies" in the README):
+#   uv pip compile requirements.in --universal --python-version 3.12 -c <tested versions> -o requirements.txt
+# Versions are the ones the test suite passed with; upgrade them on purpose, one at a time.
+
+# Web API
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32  # required by FastAPI to receive file uploads
+
+# Analytics: in-memory SQL engine for retail metrics
+duckdb==1.5.6
+
+# Settings loaded from environment variables / .env
+pydantic-settings==2.15.0

@@ -1,7 +1,7 @@
-// Talks to the backend health endpoint. All calls go through `/api`,
-// which the Vite dev server forwards to FastAPI (see vite.config.ts).
+// Talks to the backend health endpoint. All calls go through `/api`, which the Vite dev
+// server (see vite.config.ts) or, in production, the reverse proxy forwards to FastAPI.
 
-import { GATEWAY_ERRORS, START_BACKEND_HINT } from './http'
+import { GATEWAY_ERRORS, statusMessage, unexpectedResponseMessage, unreachableMessage } from './http'
 
 export type HealthResponse = {
   status: 'ok'
@@ -18,22 +18,14 @@ export async function fetchHealth(): Promise<HealthResponse> {
   try {
     response = await fetch(HEALTH_URL, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   } catch (error) {
-    throw new Error(`Could not reach the backend. ${START_BACKEND_HINT}`, { cause: error })
+    throw new Error(unreachableMessage(), { cause: error })
   }
 
-  if (GATEWAY_ERRORS.includes(response.status)) {
-    throw new Error(`Could not reach the backend (HTTP ${response.status}). ${START_BACKEND_HINT}`)
-  }
-  if (!response.ok) {
-    throw new Error(`The backend responded with an error (HTTP ${response.status}). Check the backend terminal for details.`)
-  }
+  if (GATEWAY_ERRORS.includes(response.status)) throw new Error(unreachableMessage(response.status))
+  if (!response.ok) throw new Error(statusMessage(response.status))
 
   const body: unknown = await response.json().catch(() => null)
-  if (!isHealthResponse(body)) {
-    throw new Error(
-      'Something answered on /api/health, but not with InsightFlow health data. Is another program using port 8000?',
-    )
-  }
+  if (!isHealthResponse(body)) throw new Error(unexpectedResponseMessage())
   return body
 }
 

@@ -1,0 +1,27 @@
+#!/bin/sh
+# InsightFlow status in the SSH login message. TEMPLATE; see deploy/README.md, "Alerts".
+#   sudo install -o root -g root -m 0755 90-insightflow /etc/update-motd.d/90-insightflow
+# Ubuntu runs /etc/update-motd.d/* as root when someone signs in over SSH. Prints nothing when all is well.
+
+status=/var/lib/insightflow-status/backup-failed
+backups=/var/backups/insightflow
+
+if [ -f "$status" ]; then
+    echo "*** InsightFlow: the last backup FAILED ($(cat "$status")). See: journalctl -u insightflow-backup -n 50"
+fi
+
+# No finished backup in the last 2 days: the timer may not be running at all, which records no failure.
+if [ -d "$backups" ] && [ -z "$(find "$backups" -maxdepth 1 -type d -name 'insightflow-backup-*' -mtime -2 2>/dev/null)" ]; then
+    echo "*** InsightFlow: no backup in the last 2 days. See: systemctl list-timers insightflow-backup.timer"
+fi
+
+if ! systemctl is-active --quiet insightflow; then
+    echo "*** InsightFlow: the API is not running. See: systemctl status insightflow"
+fi
+
+# Less than 10% free on the backup disk.
+used=$(df --output=pcent "$backups" 2>/dev/null | tail -n 1 | tr -dc '0-9')
+if [ -n "$used" ] && [ "$used" -ge 90 ]; then
+    echo "*** InsightFlow: the backup disk is ${used}% full. Review: python -m app.storage.backup prune --dest $backups"
+fi
+exit 0

@@ -9,11 +9,11 @@ import ipaddress
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 MEMORY_UNITS = {
@@ -21,6 +21,11 @@ MEMORY_UNITS = {
     "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4,
 }
 MIN_DUCKDB_MEMORY_BYTES = 64 * 1000**2
+
+# Host headers accepted when ALLOWED_HOSTS is not set (never in production): this computer, as the browser,
+# the Vite dev proxy, and Starlette's TestClient ("testserver") name it.
+LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+_HOST_NAME = re.compile(r"(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*")
 
 
 class Settings(BaseSettings):
@@ -32,6 +37,11 @@ class Settings(BaseSettings):
 
     app_name: str = "InsightFlow AI"
     app_env: Literal["development", "test", "production"] = "development"
+
+    # Host headers the API answers (comma-separated, without ports), for example
+    # ALLOWED_HOSTS=insightflow.example.org,127.0.0.1. Any other Host gets 400. Required in production, where
+    # wildcards are refused; elsewhere it defaults to LOCAL_HOSTS.
+    allowed_hosts: Annotated[list[str] | None, NoDecode] = None
 
     # Largest CSV upload accepted, in megabytes. Protects the server's memory.
     max_upload_mb: int = Field(default=10, gt=0)
@@ -86,6 +96,51 @@ class Settings(BaseSettings):
     def _relative_to_backend(cls, value: Path) -> Path:
         # So the location does not depend on the folder the server was started from.
         return value if value.is_absolute() else BACKEND_DIR / value
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _host_names(cls, value: object) -> object:
+        if value is None:
+            return None
+        entries = value.split(",") if isinstance(value, str) else value
+        if not isinstance(entries, list):
+            raise ValueError("ALLOWED_HOSTS must be a comma-separated list of host names.")
+        hosts = [str(entry).strip().lower() for entry in entries if str(entry).strip()]
+        if not hosts:
+            raise ValueError("ALLOWED_HOSTS is empty. List the host names the site is served under.")
+        for host in hosts:
+            if not _is_host_name(host):
+                raise ValueError(
+                    f"ALLOWED_HOSTS entry {host!r} is not a host name or IP address. "
+                    "Use names like insightflow.example.org or 127.0.0.1, without a scheme, port, or path."
+                )
+        return hosts
+
+    @model_validator(mode="after")
+    def _explicit_hosts_in_production(self) -> Self:
+        if self.app_env != "production":
+            return self
+        if self.allowed_hosts is None:
+            raise ValueError("ALLOWED_HOSTS must list the site's host names when APP_ENV=production.")
+        if any(host.startswith("*") for host in self.allowed_hosts):
+            raise ValueError("ALLOWED_HOSTS must not contain a wildcard when APP_ENV=production.")
+        return self
+
+    @property
+    def trusted_hosts(self) -> list[str]:
+        """The Host headers to accept: ALLOWED_HOSTS, or this computer's names outside production."""
+        return self.allowed_hosts if self.allowed_hosts is not None else list(LOCAL_HOSTS)
+
+
+def _is_host_name(host: str) -> bool:
+    if host == "*" or _HOST_NAME.fullmatch(host):
+        return True
+    if host.startswith("[") and host.endswith("]"):
+        try:
+            return ipaddress.ip_address(host[1:-1]).version == 6
+        except ValueError:
+            return False
+    return False
 
 
 @lru_cache

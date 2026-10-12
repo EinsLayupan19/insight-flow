@@ -1,0 +1,16 @@
+# Runs insightflow-backup.service once a day. TEMPLATE; see deploy/README.md, "Backups".
+#   sudo cp insightflow-backup.service insightflow-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now insightflow-backup.timer
+
+[Unit]
+Description=Daily InsightFlow backup
+
+[Timer]
+# 03:30 Philippine time, whatever the server's own time zone is (often UTC on cloud images).
+OnCalendar=*-*-* 03:30:00 Asia/Manila
+RandomizedDelaySec=10min
+# Run at the next boot if the server was off at that time.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

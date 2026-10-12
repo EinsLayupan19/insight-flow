@@ -32,7 +32,8 @@ def test_api_docs_are_available_outside_production(tmp_path: Path) -> None:
 
 
 def test_api_docs_are_off_in_production(tmp_path: Path) -> None:
-    client = TestClient(create_app(settings(tmp_path, app_env="production")))
+    # Production requires an explicit host list (see test_host_headers.py); TestClient sends "testserver".
+    client = TestClient(create_app(settings(tmp_path, app_env="production", allowed_hosts="testserver")))
 
     for path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
         assert client.get(path).status_code == 404, path

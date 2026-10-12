@@ -1,0 +1,60 @@
+# InsightFlow API: FastAPI on one Uvicorn worker, listening on 127.0.0.1:8000 only, behind nginx.
+# TEMPLATE for Ubuntu 24.04 (systemd 255). See deploy/README.md, "Server setup", before installing:
+#   sudo cp insightflow.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now insightflow
+#
+# One worker on purpose: the "one AI summary at a time" guard lives in the process, and each worker would need
+# its own memory for the analyses (see docs/PRODUCTION_READINESS_AUDIT.md, F7 and F14).
+
+[Unit]
+Description=InsightFlow API (FastAPI on Uvicorn)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/insightflow
+
+[Service]
+Type=exec
+User=insightflow
+Group=insightflow
+WorkingDirectory=/opt/insightflow/current/backend
+EnvironmentFile=/etc/insightflow/insightflow.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/insightflow/current/backend/.venv/bin/python -m uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --no-server-header --timeout-keep-alive 5
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Memory for the whole service. One analysis can use DUCKDB_MEMORY_LIMIT plus its parsed file, and the page runs
+# about five at once. Sized for a 12 GB VM; lower both values on a smaller one. Above MemoryMax the service is
+# stopped and restarted instead of freezing the machine.
+MemoryHigh=8G
+MemoryMax=9G
+TasksMax=512
+
+# Uploads and DuckDB spill files go to a private /tmp, emptied when the service stops.
+PrivateTmp=true
+# Only the data volume is writable.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/insightflow
+ProtectHome=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

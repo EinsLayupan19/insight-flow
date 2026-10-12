@@ -63,7 +63,8 @@ def test_the_health_check_answers_while_an_upload_is_being_parsed(tmp_path: Path
 
     async def scenario() -> tuple[int, float, bool]:
         transport = httpx2.ASGITransport(app=create_app(settings(tmp_path)))
-        async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
+        # "testserver" is one of the host names allowed outside production (ALLOWED_HOSTS unset).
+        async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
             upload = asyncio.create_task(client.post("/api/uploads/csv", files={"file": ("s.csv", SAMPLE, "text/csv")}))
             await asyncio.sleep(0.2)
             start = time.perf_counter()
@@ -101,7 +102,7 @@ async def call_asgi(app, headers: list[tuple[bytes, bytes]], chunks: list[bytes]
     scope = {
         "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
         "path": "/api/uploads/csv", "raw_path": b"/api/uploads/csv", "query_string": b"", "root_path": "",
-        "headers": [(b"host", b"test"), *headers], "client": ("127.0.0.1", 1), "server": ("test", 80),
+        "headers": [(b"host", b"testserver"), *headers], "client": ("127.0.0.1", 1), "server": ("testserver", 80),
     }
     await app(scope, receive, send)
     return sent, read

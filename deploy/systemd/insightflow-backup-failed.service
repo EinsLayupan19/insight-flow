@@ -1,0 +1,14 @@
+# Records that the InsightFlow backup failed, for the SSH login message (deploy/motd/90-insightflow).
+# Started by insightflow-backup.service's OnFailure=; never enabled on its own. TEMPLATE; see deploy/README.md, "Alerts".
+# It does not send email or any other notification: that needs a mail setup this deployment does not include.
+#   sudo cp insightflow-backup-failed.service /etc/systemd/system/ && sudo systemctl daemon-reload
+
+[Unit]
+Description=Record a failed InsightFlow backup
+
+[Service]
+Type=oneshot
+# The notice holds the time of the failure; the next successful backup removes it.
+ExecStart=/bin/sh -c 'date -u "+%%Y-%%m-%%d %%H:%%M UTC" > /var/lib/insightflow-status/backup-failed'
+# Also leave an error-level line in the journal (journalctl -p err).
+ExecStart=/bin/sh -c 'echo "InsightFlow backup failed: journalctl -u insightflow-backup -n 50" | systemd-cat -t insightflow-backup -p err'

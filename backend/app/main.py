@@ -3,9 +3,11 @@
 import duckdb
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.api import datasets, health, narration, uploads
+from app.api.cross_site import CrossSiteRequestGuard
 from app.api.csv_upload import BYTES_PER_MB
 from app.api.request_limits import MULTIPART_ALLOWANCE, RequestBodyLimit
 from app.config import Settings, get_settings
@@ -42,6 +44,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_bytes=configured.max_upload_mb * BYTES_PER_MB + MULTIPART_ALLOWANCE,
         message=f"The file is larger than the {configured.max_upload_mb} MB limit.",
     )
+    # Middleware added later runs earlier. Order of checks: host name, then cross-site origin (it relies on the
+    # checked Host header), then the body limit; refused requests are answered before their body is read.
+    app.add_middleware(CrossSiteRequestGuard)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=configured.trusted_hosts, www_redirect=False)
     app.add_exception_handler(duckdb.OutOfMemoryException, _out_of_memory)
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(uploads.router, prefix=API_PREFIX)

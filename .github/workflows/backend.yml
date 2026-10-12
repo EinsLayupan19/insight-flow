@@ -1,0 +1,47 @@
+# Backend checks on GitHub Actions: the full test suite on Python 3.12 (the oldest supported version, as on
+# Ubuntu 24.04) and on the development version, plus a dependency vulnerability audit of the pinned lock files.
+# Nothing is deployed and no secrets are used.
+name: Backend
+
+on:
+  push:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pip-audit==2.9.0
+      # On Linux this also covers the Linux-only packages (uvloop) that an audit on Windows skips.
+      - run: pip-audit -r requirements.txt
+      - run: pip-audit -r requirements-dev.txt
