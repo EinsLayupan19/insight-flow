@@ -7,8 +7,14 @@ error instead of guessing. Silent fixes would make later analysis untrustworthy.
 
 import csv
 import io
+from collections import Counter
 from _csv import Reader as CsvReader  # the type that csv.reader() returns
 from dataclasses import dataclass
+
+
+# The widest file accepted. Wider files cost time and memory in every analysis (one
+# DuckDB column and one profile entry per column) and are rarely real sales data.
+MAX_COLUMNS = 1000
 
 
 class CsvValidationError(ValueError):
@@ -81,15 +87,24 @@ def _read_header(reader: CsvReader) -> list[str]:
     if header is None:
         raise CsvValidationError("The file is empty.")
 
+    if len(header) > MAX_COLUMNS:
+        raise CsvValidationError(
+            f"The file has {len(header):,} columns. InsightFlow accepts at most {MAX_COLUMNS:,} columns."
+        )
     columns = [name.strip() for name in header]
     for position, name in enumerate(columns, start=1):
         if not name:
             raise CsvValidationError(f"Column {position} has no header name. Every column needs a name.")
 
-    duplicates = sorted({name for name in columns if columns.count(name) > 1})
+    duplicates = duplicate_names(columns)
     if duplicates:
         raise CsvValidationError(f"Duplicate column names: {', '.join(duplicates)}. Each column name must be unique.")
     return columns
+
+
+def duplicate_names(columns: list[str]) -> list[str]:
+    """Names that appear more than once, sorted. Counts once, so it takes linear time."""
+    return sorted(name for name, count in Counter(columns).items() if count > 1)
 
 
 def _read_rows(reader: CsvReader, expected_width: int) -> list[CsvRow]:

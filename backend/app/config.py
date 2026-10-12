@@ -6,6 +6,7 @@ if a settings object is ever printed or logged.
 """
 
 import ipaddress
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -15,6 +16,11 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+MEMORY_UNITS = {
+    "b": 1, "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4,
+    "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4,
+}
+MIN_DUCKDB_MEMORY_BYTES = 64 * 1000**2
 
 
 class Settings(BaseSettings):
@@ -44,6 +50,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
     ollama_timeout_seconds: float = Field(default=120, gt=0, le=600)
 
+    # Limits for each analysis's DuckDB connection. Without them DuckDB uses every core and about 80% of
+    # the machine's memory per connection, and several analyses run at once.
+    duckdb_threads: int = Field(default=2, ge=1, le=64)
+    duckdb_memory_limit: str = "1GB"
+
     @field_validator("ollama_url")
     @classmethod
     def _ollama_on_this_computer(cls, value: str) -> str:
@@ -59,6 +70,16 @@ class Settings(BaseSettings):
         if parsed.scheme not in ("http", "https") or not local:
             raise ValueError("OLLAMA_URL must point to Ollama on this computer, such as http://127.0.0.1:11434.")
         return value
+
+    @field_validator("duckdb_memory_limit")
+    @classmethod
+    def _memory_size(cls, value: str) -> str:
+        match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\s*", value, re.IGNORECASE)
+        if not match:
+            raise ValueError("DUCKDB_MEMORY_LIMIT must be a size such as 512MB or 1GB.")
+        if float(match[1]) * MEMORY_UNITS[match[2].lower()] < MIN_DUCKDB_MEMORY_BYTES:
+            raise ValueError("DUCKDB_MEMORY_LIMIT must be at least 64MB; below that, loading even a small file fails.")
+        return value.strip()
 
     @field_validator("data_dir")
     @classmethod

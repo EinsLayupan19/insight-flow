@@ -1,7 +1,9 @@
 """Ollama on this computer, through its HTTP API. Uses only the standard library: no new dependency.
 
-The URL is checked in Settings to point at this machine (localhost), so the findings sent here
-never leave it. Requests are not streamed and use temperature 0 for steady, repeatable wording.
+The URL is checked in Settings to point at this machine (localhost). That alone is not enough:
+urllib normally sends requests through any proxy named in HTTP_PROXY and follows redirects, either
+of which could carry the findings elsewhere. This adapter therefore uses its own opener with no
+proxies and refuses every redirect. Requests are not streamed and use temperature 0.
 """
 
 import json
@@ -13,6 +15,15 @@ from app.narration.providers import NarratorError, NarratorStatus
 
 MAX_REPLY_BYTES = 64 * 1024
 STATUS_TIMEOUT_SECONDS = 5
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001 - urllib's signature
+        raise NarratorError(f"Ollama answered with a redirect (HTTP {code}). Redirects are refused, so findings stay on this computer.")
+
+
+# No ProxyHandler entries: HTTP_PROXY, http_proxy, and system proxy settings are ignored.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
 
 
 class OllamaNarrator:
@@ -57,7 +68,7 @@ class OllamaNarrator:
             self.url + path, data=data, method="GET" if body is None else "POST", headers={"Content-Type": "application/json"}
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - URL is checked to be localhost
+            with _OPENER.open(request, timeout=timeout) as response:  # URL checked to be localhost; no proxy, no redirect
                 raw = response.read(MAX_REPLY_BYTES + 1)
         except urllib.error.HTTPError as error:
             raise NarratorError(f"Ollama answered with an error (HTTP {error.code}).") from error

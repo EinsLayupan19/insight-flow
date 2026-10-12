@@ -65,7 +65,8 @@ uvicorn app.main:app --reload --port 8000
 
 Check it directly:
 - Health check: <http://127.0.0.1:8000/api/health>
-- Interactive API docs: <http://127.0.0.1:8000/docs>
+- Readiness check: <http://127.0.0.1:8000/api/health/ready> (200 when the database opens and `DATA_DIR` is writable, 503 otherwise)
+- Interactive API docs: <http://127.0.0.1:8000/docs> (turned off when `APP_ENV=production`)
 
 ### Terminal 2 — start the frontend
 
@@ -170,9 +171,9 @@ curl.exe -F "file=@requirements.txt" http://127.0.0.1:8000/api/uploads/csv
 | --- | --- |
 | 200 | Valid CSV. Returns `filename`, `size_bytes`, `row_count`, `column_count`, `columns` |
 | 400 | No file in the form field named `file` |
-| 413 | File is larger than `MAX_UPLOAD_MB` (default 10) |
+| 413 | File is larger than `MAX_UPLOAD_MB` (default 10). Requests well over the limit are refused while they arrive, before the rest is stored. Also returned when an analysis needs more memory than `DUCKDB_MEMORY_LIMIT` allows. |
 | 415 | File name doesn't end in `.csv` |
-| 422 | It's a `.csv`, but the content is unreadable. The `detail` message says why (e.g. "Line 3 has 1 values, but the header has 2 columns.") |
+| 422 | It's a `.csv`, but the content is unreadable or has more than 1,000 columns. The `detail` message says why (e.g. "Line 3 has 1 values, but the header has 2 columns.") |
 
 ### Data-quality profile
 
@@ -406,7 +407,7 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 - **No profit, margin, or net revenue.** These need cost data and agreed definitions for returns and refunds.
 - **No upload progress bar.** The browser's `fetch` API can't report upload progress, so the page shows the real state of each step (waiting, in progress, done, failed) instead of a percentage.
 - **The size warning uses the default limit.** The browser warns above 10 MB (the backend's default `MAX_UPLOAD_MB`). If you change `MAX_UPLOAD_MB`, the server's answer is still the one that counts.
-- **CSV format.** Only comma-separated, UTF-8 files with a header row. Dates must be `YYYY-MM-DD` to count as dates.
+- **CSV format.** Only comma-separated, UTF-8 files with a header row and at most 1,000 columns. Dates must be `YYYY-MM-DD` to count as dates.
 - **Column mapping can't switch a role off.** A column named exactly like a role (for example `revenue`) is always used for that role.
 - **Trends only read `YYYY-MM-DD` dates.** Timestamps (`2026-01-05 10:00`) and other formats are excluded and counted, not converted, so there is no time-zone handling. Weeks are ISO weeks (Monday to Sunday); fiscal calendars are not supported. At most 2,000 periods are returned.
 - **Key findings are deliberately simple.** They compare the last two complete periods only, look for unusual periods with a single robust rule, and don't model seasonality or forecast. The safeguards are fixed values (see `thresholds`), and the wording is English templates. Findings describe what changed; explaining why is left to you.
@@ -432,6 +433,9 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 
 - Backend settings live in `backend/.env` (copied from `backend/.env.example`). `.env` is ignored by Git.
 - `DATA_DIR` (default `data`, relative to `backend/`) is where saved datasets live. Absolute paths work too, for example `DATA_DIR=C:/InsightFlowData`.
+- `APP_ENV=production` turns off the interactive API docs (`/docs`, `/redoc`, `/openapi.json`).
+- `DUCKDB_THREADS` (default 2) and `DUCKDB_MEMORY_LIMIT` (default `1GB`, at least `64MB`) limit each analysis. Several analyses can run at once, each with these limits. Data over the memory limit is spilled to the request's own temporary folder and deleted afterwards; an analysis that still does not fit returns 413.
+- Before deploying anywhere other than your own computer, read [docs/PRODUCTION_READINESS_AUDIT.md](docs/PRODUCTION_READINESS_AUDIT.md): there is no authentication, and the deployment-blocker checklist must be completed first.
 - `INSIGHTS_NARRATOR` (default `none`), `OLLAMA_URL` (must be localhost), `OLLAMA_MODEL`, and `OLLAMA_TIMEOUT_SECONDS` control the optional AI summary. Nothing is needed when it is off.
 - `GEMINI_API_KEY` is reserved and not used yet. Like any key, it is read **only by the backend**. Never put API keys in `frontend/`. Anything in frontend code is downloaded by every browser that opens the app.
 

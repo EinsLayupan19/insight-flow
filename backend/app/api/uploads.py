@@ -72,7 +72,7 @@ class CsvInsightsResponse(BaseModel):
 @router.post("/uploads/csv", response_model=CsvUploadResponse)
 async def upload_csv(settings: SettingsDep, file: CsvFile = None) -> CsvUploadResponse:
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     return CsvUploadResponse(
         filename=filename,
         size_bytes=len(content),
@@ -86,7 +86,7 @@ async def upload_csv(settings: SettingsDep, file: CsvFile = None) -> CsvUploadRe
 async def profile_csv_upload(settings: SettingsDep, file: CsvFile = None) -> CsvProfileResponse:
     """Report missing values, duplicate rows, and column types. The data is never modified."""
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     # Profiling a large file takes seconds of pure CPU work. Running it in a worker
     # thread keeps the server responsive to other requests (like /api/health) meanwhile.
     profile = await run_in_threadpool(profile_csv, parsed)
@@ -104,7 +104,7 @@ async def csv_metrics(
 ) -> CsvMetricsResponse:
     """Calculate retail metrics with DuckDB. Metrics whose columns are missing are reported as unavailable."""
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     requested = {
         "order_id": order_id_column,
         "quantity": quantity_column,
@@ -133,7 +133,7 @@ async def csv_trends(
 ) -> CsvTrendsResponse:
     """Revenue, orders, and average order value per period, with DuckDB. Rows without a usable date are excluded and counted."""
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     requested = {
         "order_date": order_date_column,
         "order_id": order_id_column,
@@ -163,7 +163,7 @@ async def csv_performance(
 ) -> CsvPerformanceResponse:
     """Revenue, quantity, and orders by product and by category. A missing column makes only its breakdown unavailable."""
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     requested = {
         "product": product_column,
         "category": category_column,
@@ -196,7 +196,7 @@ async def csv_insights(
 ) -> CsvInsightsResponse:
     """Plain-English findings from the metrics, trends, and product and category performance. Never states causes."""
     filename, content = await read_csv_upload(file, settings)
-    parsed = parse_or_422(content)
+    parsed = await run_in_threadpool(parse_or_422, content)  # CPU-bound: keep the event loop free
     requested = {
         "order_date": order_date_column,
         "product": product_column,
