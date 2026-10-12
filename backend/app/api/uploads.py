@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.analytics.retail_metrics import ColumnMappingError, RetailMetrics, calculate_retail_metrics, resolve_columns
+from app.analytics.sales_trends import DEFAULT_GRAIN, Grain, SalesTrends, calculate_sales_trends, resolve_trend_columns
 from app.api.csv_upload import CsvFile, parse_or_422, read_csv_upload
 from app.config import Settings, get_settings
 from app.ingestion.profiler import QualityReport, profile_csv
@@ -42,6 +43,12 @@ class CsvMetricsResponse(BaseModel):
     filename: str
     size_bytes: int
     metrics: RetailMetrics
+
+
+class CsvTrendsResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    trends: SalesTrends
 
 
 @router.post("/uploads/csv", response_model=CsvUploadResponse)
@@ -93,3 +100,33 @@ async def csv_metrics(
 
     metrics = await run_in_threadpool(calculate_retail_metrics, parsed, columns)
     return CsvMetricsResponse(filename=filename, size_bytes=len(content), metrics=metrics)
+
+
+@router.post("/uploads/csv/trends", response_model=CsvTrendsResponse)
+async def csv_trends(
+    settings: SettingsDep,
+    file: CsvFile = None,
+    grain: Annotated[Grain, Form(description="Group by day, week (Monday to Sunday), or month.")] = DEFAULT_GRAIN,
+    order_date_column: Annotated[str | None, _column_field("order_date")] = None,
+    order_id_column: Annotated[str | None, _column_field("order_id")] = None,
+    quantity_column: Annotated[str | None, _column_field("quantity")] = None,
+    unit_price_column: Annotated[str | None, _column_field("unit_price")] = None,
+    revenue_column: Annotated[str | None, _column_field("revenue")] = None,
+) -> CsvTrendsResponse:
+    """Revenue, orders, and average order value per period, with DuckDB. Rows without a usable date are excluded and counted."""
+    filename, content = await read_csv_upload(file, settings)
+    parsed = parse_or_422(content)
+    requested = {
+        "order_date": order_date_column,
+        "order_id": order_id_column,
+        "quantity": quantity_column,
+        "unit_price": unit_price_column,
+        "revenue": revenue_column,
+    }
+    try:
+        columns = resolve_trend_columns(parsed.columns, requested)
+    except ColumnMappingError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+
+    trends = await run_in_threadpool(calculate_sales_trends, parsed, columns, grain)
+    return CsvTrendsResponse(filename=filename, size_bytes=len(content), trends=trends)

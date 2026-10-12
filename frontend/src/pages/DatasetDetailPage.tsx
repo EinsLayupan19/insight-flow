@@ -1,18 +1,20 @@
 import { useState } from 'react'
-import type { AnalysisRecord, AnalysisSummary, DatasetDetail } from '../api/datasets'
+import type { AnalysisKind, AnalysisRecord, AnalysisSummary, DatasetDetail, TrendsAnalysisRecord } from '../api/datasets'
 import { ColumnMappingPanel } from '../components/ColumnMappingPanel'
 import { Callout, LoadingState, StatusBadge } from '../components/Feedback'
 import { Spinner } from '../components/Icons'
 import { MetricsView } from '../components/MetricsReport'
 import { QualityReportView } from '../components/QualityReport'
+import { TrendsView } from '../components/TrendsReport'
 import { useDatasetDetail, type DatasetAction } from '../hooks/useDatasets'
 import { navigate } from '../hooks/useRoute'
-import type { ColumnMapping } from '../lib/columnMapping'
+import { explicitMapping, type ColumnMapping } from '../lib/columnMapping'
 import { ANALYSIS_TITLES, describeHighlights, describeMapping, shortHash } from '../lib/datasetDisplay'
 import { formatBytes, formatDateTime, pluralize } from '../lib/format'
 import { hasUnavailableMetrics } from '../lib/metricDisplay'
 import { latestData, type RequestState } from '../lib/requestState'
 import { datasetHref, routeHref } from '../lib/route'
+import type { TrendOptions } from '../lib/trends'
 
 type DatasetDetailPageProps = {
   datasetId: number
@@ -23,6 +25,7 @@ type DatasetDetailPageProps = {
 const RUNNING_TEXT: Record<DatasetAction, string> = {
   profile: 'Running a data-quality check on the stored file…',
   metrics: 'Calculating retail metrics from the stored file…',
+  trends: 'Calculating sales trends from the stored file…',
   delete: 'Deleting the dataset…',
 }
 
@@ -68,8 +71,8 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
   const busy = detail.running !== null
   const canAnalyze = !busy && dataset.file_stored
 
-  const run = async (kind: 'profile' | 'metrics', mapping?: ColumnMapping) => {
-    const record = await detail.runAnalysis(kind, mapping)
+  const run = async (kind: AnalysisKind, mapping?: ColumnMapping, trendOptions?: TrendOptions) => {
+    const record = await detail.runAnalysis(kind, mapping, trendOptions)
     if (record) navigate(datasetHref(datasetId, record.id))
   }
 
@@ -101,6 +104,9 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
             </button>
             <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run('metrics')}>
               Calculate metrics
+            </button>
+            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run('trends')}>
+              Calculate trends
             </button>
             <button type="button" className="button-ghost danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
               Delete dataset
@@ -184,7 +190,8 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           detail.analyses.status === 'loading' && <LoadingState>Loading the history…</LoadingState>
         ) : analyses.length === 0 ? (
           <p className="empty-state">
-            No analyses recorded yet. Run a data-quality check or calculate metrics to start the history.
+            No analyses recorded yet. Run a data-quality check, calculate metrics, or calculate trends to start the
+            history.
           </p>
         ) : (
           <HistoryList datasetId={dataset.id} analyses={analyses} selectedId={detail.selectedId} />
@@ -197,6 +204,7 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           dataset={dataset}
           busy={busy}
           onApplyMapping={(mapping) => void run('metrics', mapping)}
+          onRunTrends={(mapping, trendOptions) => void run('trends', mapping, trendOptions)}
           onRetry={detail.reload}
         />
       )}
@@ -258,7 +266,7 @@ function HistoryList({ datasetId, analyses, selectedId }: { datasetId: number; a
               <span className="history-kind">{ANALYSIS_TITLES[analysis.kind]}</span>
               <span className="history-detail">
                 {describeHighlights(analysis)}
-                {analysis.kind === 'metrics' && ` · ${describeMapping(analysis.column_mapping)}`}
+                {analysis.kind !== 'profile' && ` · ${describeMapping(analysis.column_mapping)}`}
               </span>
               <span className="history-time">
                 #{analysis.id} · <time dateTime={analysis.created_at}>{formatDateTime(analysis.created_at)}</time>
@@ -276,11 +284,12 @@ type AnalysisViewerProps = {
   dataset: DatasetDetail
   busy: boolean
   onApplyMapping: (mapping: ColumnMapping) => void
+  onRunTrends: (mapping: ColumnMapping, options: TrendOptions) => void
   onRetry: () => void
 }
 
 /** A recorded result, exactly as stored. Changing the mapping records a new analysis; it never edits this one. */
-function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRetry }: AnalysisViewerProps) {
+function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, onRetry }: AnalysisViewerProps) {
   const data = latestData(record)
   return (
     <section className="card section-card" aria-labelledby="viewer-heading" aria-busy={record.status === 'loading'}>
@@ -313,6 +322,8 @@ function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRetry }: Anal
         record.status === 'loading' && <LoadingState>Loading the recorded results…</LoadingState>
       ) : data.kind === 'profile' ? (
         <QualityReportView report={data.result} />
+      ) : data.kind === 'trends' ? (
+        <RecordedTrends record={data} dataset={dataset} disabled={busy || !dataset.file_stored} onRun={onRunTrends} />
       ) : (
         <>
           <ColumnMappingPanel
@@ -327,5 +338,39 @@ function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRetry }: Anal
         </>
       )}
     </section>
+  )
+}
+
+type RecordedTrendsProps = {
+  record: TrendsAnalysisRecord
+  dataset: DatasetDetail
+  disabled: boolean
+  onRun: (mapping: ColumnMapping, options: TrendOptions) => void
+}
+
+/** Recorded trends. A different grain, date column, or column choice records a new trends analysis. */
+function RecordedTrends({ record, dataset, disabled, onRun }: RecordedTrendsProps) {
+  const mapping = explicitMapping(record.column_mapping) // the metrics roles; the date column is an option
+  const options: TrendOptions = { grain: record.grain, dateColumn: record.column_mapping.order_date ?? '' }
+  const { result } = record
+  return (
+    <>
+      <ColumnMappingPanel
+        columns={dataset.columns}
+        applied={mapping}
+        used={result.columns_used}
+        busy={disabled}
+        showHint={result.revenue.status !== 'calculated' || result.order_count.status !== 'calculated'}
+        onApply={(choices) => onRun(choices, options)}
+      />
+      <TrendsView
+        trends={result}
+        columns={dataset.columns}
+        options={options}
+        busy={false}
+        disabled={disabled}
+        onChangeOptions={(next) => onRun(mapping, next)}
+      />
+    </>
   )
 }

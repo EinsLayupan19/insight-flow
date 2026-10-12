@@ -19,10 +19,14 @@ export function WorkflowGuide() {
         <li>
           <strong>Review retail metrics.</strong> Only what your columns support, each with its definition.
         </li>
+        <li>
+          <strong>Follow sales trends.</strong> Revenue, orders, and average order value by day, week, or month.
+        </li>
       </ol>
       <p className="guide-note">
         Metrics use columns named exactly <code>order_id</code>, <code>quantity</code>, <code>unit_price</code>, and{' '}
-        <code>revenue</code>. Columns with other names can be mapped after the analysis.
+        <code>revenue</code>; trends also need <code>order_date</code> (dates written YYYY-MM-DD). Columns with other
+        names can be chosen after the analysis.
       </p>
       <p className="guide-note">
         <strong>Storage:</strong> with <em>Save to the dataset library</em> checked, the file is kept on the server's

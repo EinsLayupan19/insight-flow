@@ -4,6 +4,7 @@
 // every analysis step uploads the file again.
 
 import { mappingFormFields, type ColumnMapping, type MetricRole } from '../lib/columnMapping'
+import { trendFormFields, type TrendOptions } from '../lib/trends'
 import { isObject, requestJson } from './http'
 
 // ---------- Response types (mirror the backend's Pydantic response models) ----------
@@ -66,12 +67,40 @@ export type RetailMetrics = {
 
 export type CsvMetricsResponse = { filename: string; size_bytes: number; metrics: RetailMetrics }
 
+export type Grain = 'day' | 'week' | 'month'
+
+/** One period. Dates are calendar dates (YYYY-MM-DD); `end` is inclusive. */
+export type TrendPeriod = { start: string; end: string; row_count: number }
+
+/** A value per period. `value` is null when no row in the period could be used, never 0. */
+export type TrendPoint = { value: number | null; rows_included: number }
+
+export type TrendSeries = Omit<MetricResult, 'value'> & {
+  /** One point per period, in the same order. Empty when the series is unavailable. */
+  points: TrendPoint[]
+}
+
+export type SalesTrends = {
+  grain: Grain
+  columns_used: Record<MetricRole | 'order_date', string | null>
+  date_rule: string
+  number_rule: string
+  dated_rows: MetricResult
+  periods: TrendPeriod[]
+  revenue: TrendSeries
+  order_count: TrendSeries
+  average_order_value: TrendSeries
+}
+
+export type CsvTrendsResponse = { filename: string; size_bytes: number; trends: SalesTrends }
+
 // ---------- Requests ----------
 
 export const UPLOAD_ENDPOINTS = {
   validate: '/api/uploads/csv',
   profile: '/api/uploads/csv/profile',
   metrics: '/api/uploads/csv/metrics',
+  trends: '/api/uploads/csv/trends',
 } as const
 
 /** Check that the file is a readable CSV. Returns its row count and column names. */
@@ -87,6 +116,16 @@ export function profileCsv(file: File, signal?: AbortSignal): Promise<CsvProfile
 /** Calculate retail metrics. `mapping` holds explicit column choices; empty means automatic. */
 export function calculateMetrics(file: File, mapping: ColumnMapping, signal?: AbortSignal): Promise<CsvMetricsResponse> {
   return requestJson(UPLOAD_ENDPOINTS.metrics, csvForm(file, mappingFormFields(mapping)), isMetricsResponse, signal)
+}
+
+/** Revenue, orders, and average order value per day, week, or month. */
+export function calculateTrends(
+  file: File,
+  mapping: ColumnMapping,
+  options: TrendOptions,
+  signal?: AbortSignal,
+): Promise<CsvTrendsResponse> {
+  return requestJson(UPLOAD_ENDPOINTS.trends, csvForm(file, trendFormFields(mapping, options)), isTrendsResponse, signal)
 }
 
 /** A POST request carrying the file in the form field "file", plus any extra form fields. */
@@ -111,4 +150,8 @@ function isProfileResponse(value: unknown): value is CsvProfileResponse {
 
 function isMetricsResponse(value: unknown): value is CsvMetricsResponse {
   return isObject(value) && isObject(value.metrics) && isObject(value.metrics.columns_used) && isObject(value.metrics.row_count)
+}
+
+function isTrendsResponse(value: unknown): value is CsvTrendsResponse {
+  return isObject(value) && isObject(value.trends) && Array.isArray(value.trends.periods) && isObject(value.trends.revenue)
 }

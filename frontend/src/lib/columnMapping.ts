@@ -25,6 +25,10 @@ export const ROLE_FORM_FIELDS: Record<MetricRole, string> = {
 
 /** Explicit column choices. A role that is absent (or empty) means "automatic". */
 export type ColumnMapping = Partial<Record<MetricRole, string>>
+
+/** Sales trends also group rows by an order date column. This role is for trends only. */
+export const ORDER_DATE_LABEL = 'Order date'
+export type TrendColumnMapping = ColumnMapping & { order_date?: string }
 export type ResolvedColumns = Record<MetricRole, string | null>
 
 export function resolveColumns(columns: readonly string[], mapping: ColumnMapping): ResolvedColumns {

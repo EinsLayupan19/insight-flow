@@ -30,7 +30,10 @@ def test_opening_again_does_not_reapply_migrations(tmp_path: Path) -> None:
     connection = open_database(tmp_path / "db.sqlite")
 
     rows = connection.execute("SELECT version, name FROM schema_migrations").fetchall()
-    assert [(row["version"], row["name"]) for row in rows] == [(1, "create_datasets_and_analyses")]
+    assert [(row["version"], row["name"]) for row in rows] == [
+        (1, "create_datasets_and_analyses"),
+        (2, "allow_trends_analyses"),
+    ]
     connection.close()
 
 

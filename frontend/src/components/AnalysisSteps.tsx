@@ -1,4 +1,4 @@
-// The three real requests of an analysis and their state. No percentages: the browser's
+// The real requests of an analysis and their state. No percentages: the browser's
 // fetch API cannot report upload progress, and server-side work has no progress signal.
 
 import type { Analysis } from '../hooks/useCsvAnalysis'
@@ -54,6 +54,7 @@ export function AnalysisSteps({ analysis }: { analysis: Analysis }) {
     },
     { id: 'profile', label: 'Profile data quality', status: later(analysis.profile) },
     { id: 'metrics', label: 'Calculate retail metrics', status: later(analysis.metrics) },
+    { id: 'trends', label: 'Calculate sales trends', status: later(analysis.trends) },
   ]
 
   return (

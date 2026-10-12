@@ -6,6 +6,7 @@ import {
   listDatasets,
   runMetricsAnalysis,
   runProfileAnalysis,
+  runTrendsAnalysis,
   saveDataset,
 } from './datasets'
 import { ApiError } from './http'
@@ -104,6 +105,26 @@ describe('requests match the backend contract', () => {
     })
   })
 
+  it('sends the grain and the column mapping, including the date column, with a trends analysis', async () => {
+    const record = { ...RECORD_BASE, kind: 'trends', grain: 'week', result: { periods: [], revenue: {} } }
+    const fetchMock = mockFetch(jsonResponse(record, 201))
+
+    await expect(runTrendsAnalysis(7, { order_id: 'OrderNo', revenue: '' }, { grain: 'week', dateColumn: 'Day' })).resolves.toEqual(record)
+
+    expect(JSON.parse(sentRequest(fetchMock).init.body as string)).toEqual({
+      kind: 'trends',
+      grain: 'week',
+      column_mapping: { order_id: 'OrderNo', order_date: 'Day' },
+    })
+  })
+
+  it('reads a recorded trends analysis from the history', async () => {
+    const record = { ...RECORD_BASE, kind: 'trends', grain: 'month', result: { periods: [], revenue: {} } }
+    mockFetch(jsonResponse(record))
+
+    await expect(getAnalysis(7, 3)).resolves.toEqual(record)
+  })
+
   it('reads the history and one recorded analysis', async () => {
     const summary = { ...RECORD_BASE, kind: 'profile', highlights: { duplicate_row_count: 0, missing_value_count: 0, type_mismatch_count: 0 } }
     let fetchMock = mockFetch(jsonResponse({ analyses: [summary] }))
@@ -132,6 +153,8 @@ describe('errors and unexpected answers', () => {
     mockFetch(jsonResponse({ ...RECORD_BASE, kind: 'metrics', result: {} }, 201))
 
     await expect(runProfileAnalysis(7)).rejects.toThrow('not InsightFlow data')
+    mockFetch(jsonResponse({ ...RECORD_BASE, kind: 'metrics', result: {} }, 201))
+    await expect(runTrendsAnalysis(7, {}, { grain: 'month', dateColumn: '' })).rejects.toThrow('not InsightFlow data')
   })
 
   it('rejects a dataset list that is not InsightFlow data', async () => {

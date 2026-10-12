@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { runMetricsAnalysis, runProfileAnalysis, saveDataset, type SaveDatasetResponse } from '../api/datasets'
-import { calculateMetrics, profileCsv, validateCsv, type QualityReport, type RetailMetrics } from '../api/uploads'
+import { runMetricsAnalysis, runProfileAnalysis, runTrendsAnalysis, saveDataset, type SaveDatasetResponse } from '../api/datasets'
+import {
+  calculateMetrics,
+  calculateTrends,
+  profileCsv,
+  validateCsv,
+  type QualityReport,
+  type RetailMetrics,
+  type SalesTrends,
+} from '../api/uploads'
 import type { ColumnMapping } from '../lib/columnMapping'
+import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
 import { userMessage } from '../lib/errors'
 import { EMPTY_SELECTION, selectCsvFile, type FileSelection } from '../lib/files'
 import { failedFrom, loadingFrom, type RequestState } from '../lib/requestState'
@@ -32,7 +41,15 @@ export type Analysis = {
   requestedMapping: ColumnMapping
   /** Mapping behind the metrics currently shown. */
   appliedMapping: ColumnMapping
+  trends: RequestState<SalesTrends>
+  /** Inputs of the latest trends request (used by "Try again" and when only one option changes). */
+  trendsRequest: TrendsRequest
+  /** Grain and date column behind the trends currently shown. */
+  appliedTrendOptions: TrendOptions
 }
+
+/** Trends share the metrics' column choices and add a grain and a date column. */
+type TrendsRequest = { mapping: ColumnMapping; options: TrendOptions }
 
 /** Where results come from: the saved dataset (recorded in its history), or the file itself (not stored). */
 type Source = { file: File; datasetId: number | null }
@@ -59,18 +76,25 @@ async function fetchMetrics(source: Source, mapping: ColumnMapping, signal: Abor
   return (await calculateMetrics(source.file, mapping, signal)).metrics
 }
 
+async function fetchTrends(source: Source, request: TrendsRequest, signal: AbortSignal): Promise<SalesTrends> {
+  if (source.datasetId !== null) return (await runTrendsAnalysis(source.datasetId, request.mapping, request.options, signal)).result
+  return (await calculateTrends(source.file, request.mapping, request.options, signal)).trends
+}
+
 export function useCsvAnalysis() {
   const [selection, setSelection] = useState<FileSelection>(EMPTY_SELECTION)
   const [saveToLibrary, setSaveToLibrary] = useState(true)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
-  // One controller for validate + profile, and one for metrics, which can re-run on its own.
+  // One controller for validate + profile, and one each for metrics and trends, which can re-run on their own.
   const runController = useRef<AbortController | null>(null)
   const metricsController = useRef<AbortController | null>(null)
+  const trendsController = useRef<AbortController | null>(null)
   const nextId = useRef(1)
 
   const abortAll = useCallback(() => {
     runController.current?.abort()
     metricsController.current?.abort()
+    trendsController.current?.abort()
   }, [])
 
   useEffect(() => abortAll, [abortAll]) // cancel in-flight requests if the app unmounts
@@ -113,6 +137,24 @@ export function useCsvAnalysis() {
     [update],
   )
 
+  const runTrends = useCallback(
+    async (id: number, source: Source, request: TrendsRequest) => {
+      trendsController.current?.abort() // a newer request replaces one still running
+      const controller = new AbortController()
+      trendsController.current = controller
+      update(id, (a) => ({ ...a, trendsRequest: request, trends: loadingFrom(a.trends) }))
+      try {
+        const data = await fetchTrends(source, request, controller.signal)
+        update(id, (a) => ({ ...a, appliedTrendOptions: request.options, trends: { status: 'success', data } }))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const message = userMessage(error)
+        update(id, (a) => ({ ...a, trends: failedFrom(a.trends, message) }))
+      }
+    },
+    [update],
+  )
+
   const analyze = useCallback(
     async (file: File, mode: StorageMode) => {
       abortAll()
@@ -129,6 +171,9 @@ export function useCsvAnalysis() {
         metrics: { status: 'idle' },
         requestedMapping: {},
         appliedMapping: {},
+        trends: { status: 'idle' },
+        trendsRequest: { mapping: {}, options: DEFAULT_TREND_OPTIONS },
+        appliedTrendOptions: DEFAULT_TREND_OPTIONS,
       })
 
       let source: Source
@@ -143,11 +188,12 @@ export function useCsvAnalysis() {
         return
       }
 
-      // Both steps run in parallel and can fail independently.
+      // The steps run in parallel and can fail independently.
       void runProfile(id, source, controller.signal)
       void runMetrics(id, source, {})
+      void runTrends(id, source, { mapping: {}, options: DEFAULT_TREND_OPTIONS })
     },
-    [abortAll, update, runProfile, runMetrics],
+    [abortAll, update, runProfile, runMetrics, runTrends],
   )
 
   const selectFiles = useCallback((files: readonly File[]) => setSelection(selectCsvFile(files)), [])
@@ -172,11 +218,26 @@ export function useCsvAnalysis() {
     if (analysis) void runMetrics(analysis.id, sourceOf(analysis), analysis.requestedMapping)
   }, [analysis, runMetrics])
 
+  const retryTrends = useCallback(() => {
+    if (analysis) void runTrends(analysis.id, sourceOf(analysis), analysis.trendsRequest)
+  }, [analysis, runTrends])
+
+  /** New column choices apply to the metrics and to the trends. */
   const applyMapping = useCallback(
     (mapping: ColumnMapping) => {
-      if (analysis) void runMetrics(analysis.id, sourceOf(analysis), mapping)
+      if (!analysis) return
+      void runMetrics(analysis.id, sourceOf(analysis), mapping)
+      void runTrends(analysis.id, sourceOf(analysis), { mapping, options: analysis.trendsRequest.options })
     },
-    [analysis, runMetrics],
+    [analysis, runMetrics, runTrends],
+  )
+
+  /** A different grain or date column re-runs the trends only. */
+  const changeTrendOptions = useCallback(
+    (options: TrendOptions) => {
+      if (analysis) void runTrends(analysis.id, sourceOf(analysis), { mapping: analysis.trendsRequest.mapping, options })
+    },
+    [analysis, runTrends],
   )
 
   /** Cancel anything running and forget the results shown. Saved datasets are not affected. */
@@ -196,7 +257,9 @@ export function useCsvAnalysis() {
     retryAnalysis,
     retryProfile,
     retryMetrics,
+    retryTrends,
     applyMapping,
+    changeTrendOptions,
     clearResults,
   }
 }

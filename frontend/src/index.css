@@ -26,6 +26,12 @@
   --meter-fill: #2a78d6;
   --meter-track: #cde2fb;
 
+  /* Trend chart: one series in the same single hue; grid and axes stay one step off the surface. */
+  --chart-series: #2a78d6;
+  --chart-grid: var(--gray-100);
+  --chart-baseline: var(--gray-300);
+  --chart-active: #eef4fc;
+
   --radius: 10px;
   --shadow: 0 1px 2px rgb(15 42 74 / 0.06), 0 1px 3px rgb(15 42 74 / 0.08);
 
@@ -1172,6 +1178,270 @@ a.button-ghost {
 
 .footnotes li + li {
   margin-top: 4px;
+}
+
+/* ---------- Sales trends ---------- */
+
+.trend-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+  margin-bottom: 12px;
+}
+
+.trend-controls fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.trend-controls legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.trend-controls .field:has(select) {
+  min-width: min(100%, 240px);
+}
+
+/* Segmented control built from native radio inputs: keyboard and screen-reader behavior come for free. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-self: start;
+  padding: 2px;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  background: var(--gray-50);
+}
+
+.segment {
+  position: relative;
+}
+
+.segment input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment input:disabled {
+  cursor: not-allowed;
+}
+
+.segment span {
+  display: block;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--gray-600);
+}
+
+.segment input:checked + span {
+  background: var(--white);
+  color: var(--navy-900);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.segment input:hover:not(:checked, :disabled) + span {
+  color: var(--navy-800);
+}
+
+.segment input:focus-visible + span {
+  outline: 2px solid var(--navy-600);
+  outline-offset: 1px;
+}
+
+.segment input:disabled + span {
+  opacity: 0.6;
+}
+
+.trends-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr); /* lets the wide table scroll instead of widening the page */
+  gap: 14px;
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.trends-body.is-stale {
+  opacity: 0.5;
+}
+
+.trend-coverage {
+  display: grid;
+  gap: 8px;
+}
+
+.trend-coverage code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--gray-100);
+  color: var(--navy-900);
+}
+
+.trend-figure {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.trend-figure-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+.trend-chart {
+  position: relative;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.trend-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.trend-grid,
+.trend-baseline,
+.trend-crosshair {
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.trend-grid { stroke: var(--chart-grid); }
+.trend-baseline { stroke: var(--chart-baseline); }
+.trend-crosshair { stroke: var(--gray-500); }
+
+.trend-axis-label {
+  fill: var(--gray-500);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-column { fill: var(--chart-series); }
+.trend-active-band { fill: var(--chart-active); }
+
+.trend-line {
+  fill: none;
+  stroke: var(--chart-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* End-markers carry a 2px ring in the surface color so they stay legible on the line. */
+.trend-dot {
+  fill: var(--chart-series);
+  stroke: var(--white);
+  stroke-width: 2;
+}
+
+.trend-hit-area {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+/* Tooltip: value first, then the period. Appears instantly; hover is too frequent to animate. */
+.trend-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 150px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: var(--white);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  text-align: left;
+}
+
+.trend-tooltip-value {
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--navy-900);
+}
+
+.trend-tooltip-label,
+.trend-tooltip-detail {
+  font-size: 0.78rem;
+  color: var(--gray-600);
+}
+
+.trend-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.trend-evidence .metric-footer {
+  margin-top: 0;
+}
+
+.trends-empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--gray-25);
+}
+
+.trends-empty .metric-notes {
+  margin-top: 10px;
+}
+
+.empty-state-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.trend-table-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.trend-table {
+  min-width: 560px;
+}
+
+.trend-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.trend-table thead th:first-child {
+  z-index: 3;
+}
+
+.trend-table .numeric {
+  text-align: right;
+}
+
+.trend-table tbody th {
+  font-weight: 500;
+  color: var(--navy-900);
+  white-space: nowrap;
+}
+
+.trend-table tr.is-empty > * {
+  background: var(--gray-25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trends-body,
+  .metrics-body {
+    transition: none;
+  }
 }
 
 /* ---------- Dataset library ---------- */

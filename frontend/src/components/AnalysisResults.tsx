@@ -5,18 +5,30 @@ import { formatBytes, formatDateTime, pluralize } from '../lib/format'
 import { datasetHref } from '../lib/route'
 import { Callout } from './Feedback'
 import { MetricsSection } from './MetricsReport'
+import type { TrendOptions } from '../lib/trends'
 import { QualitySection } from './QualityReport'
+import { TrendsSection } from './TrendsReport'
 
 type AnalysisResultsProps = {
   analysis: Analysis
   onRetryProfile: () => void
   onRetryMetrics: () => void
+  onRetryTrends: () => void
   onApplyMapping: (mapping: ColumnMapping) => void
+  onChangeTrendOptions: (options: TrendOptions) => void
   onClear: () => void
 }
 
 /** Results of the latest analysis. Shown only after the file passed validation. */
-export function AnalysisResults({ analysis, onRetryProfile, onRetryMetrics, onApplyMapping, onClear }: AnalysisResultsProps) {
+export function AnalysisResults({
+  analysis,
+  onRetryProfile,
+  onRetryMetrics,
+  onRetryTrends,
+  onApplyMapping,
+  onChangeTrendOptions,
+  onClear,
+}: AnalysisResultsProps) {
   if (analysis.validation.status !== 'success') return null
   const summary = analysis.validation.data
 
@@ -39,6 +51,9 @@ export function AnalysisResults({ analysis, onRetryProfile, onRetryMetrics, onAp
             <button type="button" className="link-button" onClick={() => scrollToSection('retail-metrics')}>
               Retail metrics
             </button>
+            <button type="button" className="link-button" onClick={() => scrollToSection('sales-trends')}>
+              Sales trends
+            </button>
           </div>
           <button type="button" className="button-secondary" onClick={onClear}>
             Clear results
@@ -55,6 +70,13 @@ export function AnalysisResults({ analysis, onRetryProfile, onRetryMetrics, onAp
         appliedMapping={analysis.appliedMapping}
         onApplyMapping={onApplyMapping}
         onRetry={onRetryMetrics}
+      />
+      <TrendsSection
+        state={analysis.trends}
+        columns={summary.columns}
+        options={analysis.trendsRequest.options}
+        onChangeOptions={onChangeTrendOptions}
+        onRetry={onRetryTrends}
       />
     </section>
   )

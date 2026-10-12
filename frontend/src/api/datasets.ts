@@ -4,9 +4,10 @@
 // stores it on its own disk and keeps its metadata and every analysis in SQLite,
 // until the dataset is deleted.
 
-import { explicitMapping, type ColumnMapping } from '../lib/columnMapping'
+import { explicitMapping, type ColumnMapping, type TrendColumnMapping } from '../lib/columnMapping'
+import { trendColumnMapping, type TrendOptions } from '../lib/trends'
 import { isObject, requestJson, requestNoContent } from './http'
-import { csvForm, type QualityReport, type RetailMetrics } from './uploads'
+import { csvForm, type Grain, type QualityReport, type RetailMetrics, type SalesTrends } from './uploads'
 
 // ---------- Response types (mirror backend/app/datasets/models.py) ----------
 
@@ -36,21 +37,32 @@ export type SaveDatasetResponse = {
 
 export type ProfileHighlights = { duplicate_row_count: number; missing_value_count: number; type_mismatch_count: number }
 export type MetricsHighlights = { calculated_count: number; unavailable_count: number }
+/** calculated_count and unavailable_count are out of the three trends: revenue, orders, average order value. */
+export type TrendsHighlights = { grain: Grain; period_count: number; calculated_count: number; unavailable_count: number }
+
+export type AnalysisKind = 'profile' | 'metrics' | 'trends'
+const ANALYSIS_KINDS: readonly unknown[] = ['profile', 'metrics', 'trends'] satisfies AnalysisKind[]
 
 type AnalysisBase = {
   id: number
   dataset_id: number
   created_at: string
   app_version: string
-  column_mapping: ColumnMapping
+  /** Explicit column choices. order_date appears for trends only. */
+  column_mapping: TrendColumnMapping
 }
 
 export type AnalysisSummary = AnalysisBase &
-  ({ kind: 'profile'; highlights: ProfileHighlights } | { kind: 'metrics'; highlights: MetricsHighlights })
+  (
+    | { kind: 'profile'; highlights: ProfileHighlights }
+    | { kind: 'metrics'; highlights: MetricsHighlights }
+    | { kind: 'trends'; highlights: TrendsHighlights }
+  )
 
 export type ProfileAnalysisRecord = AnalysisBase & { kind: 'profile'; result: QualityReport }
 export type MetricsAnalysisRecord = AnalysisBase & { kind: 'metrics'; result: RetailMetrics }
-export type AnalysisRecord = ProfileAnalysisRecord | MetricsAnalysisRecord
+export type TrendsAnalysisRecord = AnalysisBase & { kind: 'trends'; grain: Grain; result: SalesTrends }
+export type AnalysisRecord = ProfileAnalysisRecord | MetricsAnalysisRecord | TrendsAnalysisRecord
 
 // ---------- Requests ----------
 
@@ -104,6 +116,17 @@ export function runMetricsAnalysis(
   return requestJson(analysesUrl(datasetId), jsonPost(body), isMetricsRecord, signal)
 }
 
+/** Calculate sales trends on the stored file and record them. Only explicit column choices are sent. */
+export function runTrendsAnalysis(
+  datasetId: number,
+  mapping: ColumnMapping,
+  options: TrendOptions,
+  signal?: AbortSignal,
+): Promise<TrendsAnalysisRecord> {
+  const body = { kind: 'trends', grain: options.grain, column_mapping: trendColumnMapping(mapping, options) }
+  return requestJson(analysesUrl(datasetId), jsonPost(body), isTrendsRecord, signal)
+}
+
 function jsonPost(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
@@ -137,7 +160,7 @@ function isAnalysisList(value: unknown): value is { analyses: AnalysisSummary[] 
 }
 
 function isAnalysisRecord(value: unknown): value is AnalysisRecord {
-  return isObject(value) && typeof value.id === 'number' && (value.kind === 'profile' || value.kind === 'metrics') && isObject(value.result)
+  return isObject(value) && typeof value.id === 'number' && ANALYSIS_KINDS.includes(value.kind) && isObject(value.result)
 }
 
 function isProfileRecord(value: unknown): value is ProfileAnalysisRecord {
@@ -146,4 +169,8 @@ function isProfileRecord(value: unknown): value is ProfileAnalysisRecord {
 
 function isMetricsRecord(value: unknown): value is MetricsAnalysisRecord {
   return isAnalysisRecord(value) && value.kind === 'metrics'
+}
+
+function isTrendsRecord(value: unknown): value is TrendsAnalysisRecord {
+  return isAnalysisRecord(value) && value.kind === 'trends'
 }

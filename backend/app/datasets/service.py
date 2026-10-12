@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from app.analytics.retail_metrics import MetricResult, RetailMetrics, calculate_retail_metrics, resolve_columns
+from app.analytics.sales_trends import DEFAULT_GRAIN, SalesTrends, calculate_sales_trends, resolve_trend_columns
 from app.datasets.models import (
     AnalysisRequest,
     AnalysisSummary,
@@ -29,6 +30,8 @@ from app.datasets.models import (
     ProfileAnalysis,
     ProfileHighlights,
     SaveDatasetResponse,
+    TrendsAnalysis,
+    TrendsHighlights,
 )
 from app.ingestion.csv_parser import parse_csv
 from app.ingestion.profiler import QualityReport, profile_csv
@@ -127,20 +130,25 @@ class DatasetService:
 
     # ---------- Analyses ----------
 
-    def run_analysis(self, dataset_id: int, request: AnalysisRequest) -> ProfileAnalysis | MetricsAnalysis:
+    def run_analysis(self, dataset_id: int, request: AnalysisRequest) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
         """Analyze the stored file and record the result in the dataset's history."""
         row = self._dataset_row(dataset_id)
         parsed = parse_csv(self._files.read(row.sha256))  # StoredFileError if missing or changed
 
-        result: QualityReport | RetailMetrics
+        result: QualityReport | RetailMetrics | SalesTrends
         parameters: dict[str, Any]
         if request.kind == "profile":
             result = profile_csv(parsed)
             parameters = {}
-        else:
+        elif request.kind == "metrics":
             columns = resolve_columns(parsed.columns, dict(request.column_mapping))  # ColumnMappingError
             result = calculate_retail_metrics(parsed, columns)
             parameters = {"column_mapping": request.column_mapping}
+        else:
+            grain = request.grain or DEFAULT_GRAIN
+            trend_columns = resolve_trend_columns(parsed.columns, dict(request.column_mapping))  # ColumnMappingError
+            result = calculate_sales_trends(parsed, trend_columns, grain)
+            parameters = {"column_mapping": request.column_mapping, "grain": grain}
 
         try:
             with self._repository() as repo:
@@ -166,7 +174,7 @@ class DatasetService:
             rows = repo.list_analyses(dataset_id)
         return [_analysis_summary(row) for row in rows]
 
-    def get_analysis(self, dataset_id: int, analysis_id: int) -> ProfileAnalysis | MetricsAnalysis:
+    def get_analysis(self, dataset_id: int, analysis_id: int) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
         with self._repository() as repo:
             if repo.get_dataset(dataset_id) is None:
                 raise DatasetNotFoundError(dataset_id)
@@ -222,7 +230,7 @@ def _summary(row: DatasetRow) -> DatasetSummary:
     )
 
 
-def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis:
+def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
     common = {
         "id": row.id,
         "dataset_id": row.dataset_id,
@@ -232,18 +240,31 @@ def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis:
     }
     if row.kind == "profile":
         return ProfileAnalysis(kind="profile", result=QualityReport.model_validate_json(row.result_json), **common)
+    if row.kind == "trends":
+        result = SalesTrends.model_validate_json(row.result_json)
+        return TrendsAnalysis(kind="trends", grain=result.grain, result=result, **common)
     return MetricsAnalysis(kind="metrics", result=RetailMetrics.model_validate_json(row.result_json), **common)
 
 
 def _analysis_summary(row: AnalysisRow) -> AnalysisSummary:
     record = _record(row)
-    highlights: ProfileHighlights | MetricsHighlights
+    highlights: ProfileHighlights | MetricsHighlights | TrendsHighlights
     if isinstance(record, ProfileAnalysis):
         report = record.result
         highlights = ProfileHighlights(
             duplicate_row_count=report.duplicate_row_count,
             missing_value_count=sum(column.missing_count for column in report.columns),
             type_mismatch_count=sum(column.mismatch_count for column in report.columns),
+        )
+    elif isinstance(record, TrendsAnalysis):
+        trends = record.result
+        series = [trends.revenue, trends.order_count, trends.average_order_value]
+        calculated = sum(item.status == "calculated" for item in series)
+        highlights = TrendsHighlights(
+            grain=trends.grain,
+            period_count=len(trends.periods),
+            calculated_count=calculated,
+            unavailable_count=len(series) - calculated,
         )
     else:
         metrics = [value for _, value in record.result if isinstance(value, MetricResult)]

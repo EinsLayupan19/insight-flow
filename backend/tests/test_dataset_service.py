@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from app.analytics.retail_metrics import ColumnMappingError
-from app.datasets.models import AnalysisRequest, MetricsAnalysis, ProfileAnalysis
+from app.analytics.sales_trends import calculate_sales_trends, resolve_trend_columns
+from app.datasets.models import AnalysisRequest, MetricsAnalysis, ProfileAnalysis, TrendsAnalysis
 from app.datasets.service import DatasetNotFoundError, DatasetService, display_name
 from app.ingestion.csv_parser import CsvValidationError, parse_csv
 from app.ingestion.profiler import profile_csv
@@ -85,6 +86,33 @@ def test_metrics_analysis_records_the_column_mapping_it_used(service: DatasetSer
     assert record.column_mapping == mapping
     assert record.result.total_revenue.value == 10.0
     assert record.result.columns_used["quantity"] == "Qty"
+
+
+def test_trends_analysis_is_recorded_with_the_same_result_as_live_trends(service: DatasetService) -> None:
+    dataset_id = service.save_dataset("messy_sales.csv", MESSY).dataset.id
+    parsed = parse_csv(MESSY)
+
+    record = service.run_analysis(dataset_id, AnalysisRequest(kind="trends", grain="week"))
+
+    assert isinstance(record, TrendsAnalysis)
+    assert record.grain == "week"
+    assert record.result == calculate_sales_trends(parsed, resolve_trend_columns(parsed.columns, {}), "week")
+    assert service.get_analysis(dataset_id, record.id) == record
+    assert service.list_analyses(dataset_id)[0].highlights.model_dump() == {
+        "grain": "week",
+        "period_count": 1,
+        "calculated_count": 3,
+        "unavailable_count": 0,
+    }
+
+
+def test_trends_requests_default_to_months_and_reject_options_of_other_kinds() -> None:
+    assert AnalysisRequest(kind="trends").grain == "month"
+    assert AnalysisRequest(kind="metrics").grain is None
+    with pytest.raises(ValueError, match="grain only applies to kind 'trends'"):
+        AnalysisRequest(kind="metrics", grain="day")
+    with pytest.raises(ValueError, match="'order_date' only applies to kind 'trends'"):
+        AnalysisRequest(kind="metrics", column_mapping={"order_date": "Day"})
 
 
 def test_an_invalid_mapping_records_nothing(service: DatasetService) -> None:

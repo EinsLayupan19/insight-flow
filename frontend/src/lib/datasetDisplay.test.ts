@@ -32,9 +32,28 @@ describe('describeHighlights', () => {
   })
 })
 
+describe('describeHighlights for trends', () => {
+  it('names the periods and how many trends were calculated', () => {
+    const trends = (grain: 'day' | 'week' | 'month', periods: number, calculated: number): AnalysisSummary => ({
+      ...base,
+      id: 3,
+      kind: 'trends',
+      highlights: { grain, period_count: periods, calculated_count: calculated, unavailable_count: 3 - calculated },
+    })
+
+    expect(describeHighlights(trends('month', 12, 3))).toBe('12 months · 3 of 3 trends calculated')
+    expect(describeHighlights(trends('day', 1, 1))).toBe('1 day · 1 of 3 trends calculated')
+    expect(describeHighlights(trends('week', 0, 0))).toBe('No periods · 0 of 3 trends calculated')
+  })
+})
+
 describe('describeMapping', () => {
   it('lists explicit choices in role order', () => {
     expect(describeMapping({ unit_price: 'Price', quantity: 'Qty' })).toBe('Quantity → Qty, Unit price → Price')
+  })
+
+  it('lists a chosen date column first', () => {
+    expect(describeMapping({ quantity: 'Qty', order_date: 'Day' })).toBe('Order date → Day, Quantity → Qty')
   })
 
   it('names automatic matching when nothing was chosen', () => {

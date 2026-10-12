@@ -7,6 +7,8 @@ import {
   listDatasets,
   runMetricsAnalysis,
   runProfileAnalysis,
+  runTrendsAnalysis,
+  type AnalysisKind,
   type AnalysisRecord,
   type AnalysisSummary,
   type DatasetDetail,
@@ -16,6 +18,7 @@ import type { ColumnMapping } from '../lib/columnMapping'
 import { selectedAnalysisId } from '../lib/datasetDisplay'
 import { userMessage } from '../lib/errors'
 import { failedFrom, latestData, loadingFrom, type RequestState } from '../lib/requestState'
+import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
 
 const LOADING = { status: 'loading', previous: null } as const
 
@@ -43,7 +46,7 @@ export function useDatasetList() {
   return { state, reload }
 }
 
-export type DatasetAction = 'profile' | 'metrics' | 'delete'
+export type DatasetAction = AnalysisKind | 'delete'
 
 /**
  * One saved dataset: its details, its analysis history, the analysis being viewed, and the
@@ -109,11 +112,20 @@ export function useDatasetDetail(datasetId: number, requestedAnalysisId: number 
 
   /** Run an analysis on the stored file. Resolves to the new record, or null if it failed (see actionError). */
   const runAnalysis = useCallback(
-    async (kind: 'profile' | 'metrics', mapping: ColumnMapping = {}): Promise<AnalysisRecord | null> => {
+    async (
+      kind: AnalysisKind,
+      mapping: ColumnMapping = {},
+      trendOptions: TrendOptions = DEFAULT_TREND_OPTIONS,
+    ): Promise<AnalysisRecord | null> => {
       setRunning(kind)
       setActionError(null)
       try {
-        const created = kind === 'profile' ? await runProfileAnalysis(datasetId) : await runMetricsAnalysis(datasetId, mapping)
+        const created =
+          kind === 'profile'
+            ? await runProfileAnalysis(datasetId)
+            : kind === 'metrics'
+              ? await runMetricsAnalysis(datasetId, mapping)
+              : await runTrendsAnalysis(datasetId, mapping, trendOptions)
         setRecords((current) => ({ ...current, [created.id]: created }))
         setReloadKey((n) => n + 1) // refresh the history and counts; the current view stays meanwhile
         return created
