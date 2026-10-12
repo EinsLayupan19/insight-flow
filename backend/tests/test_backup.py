@@ -803,3 +803,31 @@ def test_an_interrupted_deletion_never_leaves_a_half_deleted_backup_under_its_na
     monkeypatch.setattr(backup.shutil, "rmtree", real_rmtree)
     prune_backups(destination, keep_daily=1, keep_monthly=0, apply=True)
     assert listing(destination) == names(made[:1])  # the leftover was removed by the next prune
+
+
+# ---------- An empty backup folder ----------
+
+
+def test_prune_apply_on_a_folder_without_backups_says_so_and_deletes_nothing(destination: Path, capsys: pytest.CaptureFixture) -> None:
+    destination.mkdir()
+    leftover = destination / f".insightflow-backup-20261001T030000Z.partial-{'0' * 32}"  # even stale leftovers stay:
+    leftover.mkdir()  # nothing is deleted without a clean backup
+    two_days_ago = (datetime.now(UTC) - timedelta(days=2)).timestamp()
+    os.utime(leftover, (two_days_ago, two_days_ago))
+
+    with pytest.raises(BackupError, match="No backups in .* so nothing was deleted"):
+        prune_backups(destination, keep_daily=1, keep_monthly=0, apply=True)
+    assert leftover.exists()
+
+    capsys.readouterr()
+    assert backup.main(["prune", "--dest", str(destination), "--apply"]) == 1
+    error = capsys.readouterr().err
+    assert "No backups in" in error and "no longer verifies" not in error
+    assert leftover.exists()
+
+
+def test_prune_preview_on_a_folder_without_backups_says_so(destination: Path, capsys: pytest.CaptureFixture) -> None:
+    destination.mkdir()
+
+    assert backup.main(["prune", "--dest", str(destination)]) == 0
+    assert "No backups found" in capsys.readouterr().out

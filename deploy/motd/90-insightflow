@@ -5,8 +5,16 @@
 
 status=/var/lib/insightflow-status/backup-failed
 backups=/var/backups/insightflow
+volume=/var/lib/insightflow
 
-if [ -f "$status" ]; then
+# The app and the backup job refuse to run without the data volume; say why here.
+if ! mountpoint -q "$volume"; then
+    echo "*** InsightFlow: the data volume is NOT mounted at $volume. The app and backups are stopped. See: findmnt $volume"
+elif [ ! -f "$volume/.insightflow-volume" ]; then
+    echo "*** InsightFlow: $volume is mounted but has no .insightflow-volume marker. Check it is the right volume."
+fi
+
+if [ -f "$status" ] && [ ! -L "$status" ]; then
     echo "*** InsightFlow: the last backup FAILED ($(cat "$status")). See: journalctl -u insightflow-backup -n 50"
 fi
 

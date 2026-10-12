@@ -2,13 +2,19 @@
 # Started by insightflow-backup.service's OnFailure=; never enabled on its own. TEMPLATE; see deploy/README.md, "Alerts".
 # It does not send email or any other notification: that needs a mail setup this deployment does not include.
 #   sudo cp insightflow-backup-failed.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#
+# Runs as root and writes into /var/lib/insightflow-status, which must be root-owned (0755) so that the insightflow
+# user cannot plant a symbolic link for root to write through (deploy/README.md, "Server setup", step 6).
+# The notice is written to a new temporary file and renamed into place; rename replaces a link instead of following it.
 
 [Unit]
 Description=Record a failed InsightFlow backup
 
 [Service]
 Type=oneshot
+UMask=0022
 # The notice holds the time of the failure; the next successful backup removes it.
-ExecStart=/bin/sh -c 'date -u "+%%Y-%%m-%%d %%H:%%M UTC" > /var/lib/insightflow-status/backup-failed'
+# In unit files "$$" passes a literal "$" to the shell and "%%" a literal "%" (systemd expands single ones itself).
+ExecStart=/bin/sh -c 'tmp=$$(mktemp /var/lib/insightflow-status/.backup-failed.XXXXXX) && date -u "+%%Y-%%m-%%d %%H:%%M UTC" > "$$tmp" && chmod 0644 "$$tmp" && mv -f "$$tmp" /var/lib/insightflow-status/backup-failed'
 # Also leave an error-level line in the journal (journalctl -p err).
 ExecStart=/bin/sh -c 'echo "InsightFlow backup failed: journalctl -u insightflow-backup -n 50" | systemd-cat -t insightflow-backup -p err'

@@ -10,7 +10,12 @@
 Description=InsightFlow API (FastAPI on Uvicorn)
 After=network-online.target
 Wants=network-online.target
+# The data volume (its /etc/fstab line creates var-lib-insightflow.mount; see deploy/README.md, "Data volume").
+# BindsTo: the app does not start without that mount unit, not even when the fstab line is missing, and is
+# stopped if the volume goes away while it runs, so it can never carry on writing into the bare mount point.
 RequiresMountsFor=/var/lib/insightflow
+BindsTo=var-lib-insightflow.mount
+After=var-lib-insightflow.mount
 
 [Service]
 Type=exec
@@ -19,6 +24,12 @@ Group=insightflow
 WorkingDirectory=/opt/insightflow/current/backend
 EnvironmentFile=/etc/insightflow/insightflow.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Fail closed unless the data volume is mounted, so the app can never start an empty library on the system disk.
+# 1. A mount point, checked outside the sandbox ("+"): inside it, ReadWritePaths bind-mounts the folder, which
+#    would always look like a mount point.
+# 2. The marker created on the volume during setup (deploy/README.md, "Data volume"); absent on the system disk.
+ExecStartPre=+/usr/bin/mountpoint -q /var/lib/insightflow
+ExecStartPre=/usr/bin/test -f /var/lib/insightflow/.insightflow-volume
 ExecStart=/opt/insightflow/current/backend/.venv/bin/python -m uvicorn app.main:app \
     --host 127.0.0.1 --port 8000 --workers 1 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1 \

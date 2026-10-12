@@ -8,8 +8,14 @@
 
 [Unit]
 Description=InsightFlow backup (database and stored CSV files)
-RequiresMountsFor=/var/lib/insightflow /var/backups/insightflow
-# On any failure, including the timeout below, record it for the login message (insightflow-backup-failed.service).
+# The data volume is only *wanted* (and ordered first), not required: if it is missing, this job still starts,
+# its own checks below fail, and that is a failure systemd reports through OnFailure. A failed *required* mount
+# would only cancel the job, which runs no OnFailure, so a missing volume would raise no alert.
+Wants=var-lib-insightflow.mount
+After=var-lib-insightflow.mount
+RequiresMountsFor=/var/backups/insightflow
+# On any failure, including the volume checks and the timeout below, record it for the login message
+# (insightflow-backup-failed.service).
 OnFailure=insightflow-backup-failed.service
 
 [Service]
@@ -19,13 +25,19 @@ Group=insightflow
 WorkingDirectory=/opt/insightflow/current/backend
 EnvironmentFile=/etc/insightflow/insightflow.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+# Fail closed unless the data volume is mounted, as in insightflow.service: never back up an empty library on the
+# system disk (it would count as a clean backup). The mount point is checked outside the sandbox ("+"), because
+# ReadOnlyPaths bind-mounts the folder inside it. A failure here triggers OnFailure like any other.
+ExecStartPre=+/usr/bin/mountpoint -q /var/lib/insightflow
+ExecStartPre=/usr/bin/test -f /var/lib/insightflow/.insightflow-volume
 ExecStart=/opt/insightflow/current/backend/.venv/bin/python -m app.storage.backup create --dest /var/backups/insightflow
 # Retention: by default this only PRINTS which old backups the policy would delete (to the journal). Add --apply
 # once you have read a few of these previews and agree with them. The newest backup that verifies cleanly is never
 # deleted, and nothing is deleted if no backup verifies cleanly (that also fails the job).
 ExecStartPost=/opt/insightflow/current/backend/.venv/bin/python -m app.storage.backup prune --dest /var/backups/insightflow --keep-daily 14 --keep-monthly 12
-# Reached only when everything above succeeded: clear an earlier failure notice.
-ExecStartPost=/usr/bin/rm -f /var/lib/insightflow-status/backup-failed
+# Reached only when everything above succeeded: clear an earlier failure notice. Runs as root ("+") because the
+# notice folder is root-owned: the service user can neither write nor plant links there.
+ExecStartPost=+/usr/bin/rm -f /var/lib/insightflow-status/backup-failed
 
 # A backup of a small library takes seconds; 45 minutes means something is stuck (for example a database lock that
 # is never released). systemd then sends SIGTERM: the job removes its unfinished folder and exits. If it does not
@@ -38,10 +50,10 @@ TimeoutStopSec=60s
 Nice=10
 IOSchedulingClass=idle
 
-# The library is read-only for this job: it can read the data, never change it.
+# The library is read-only for this job: it can read the data, never change it. Only the backup folder is writable.
 ProtectSystem=strict
 ReadOnlyPaths=/var/lib/insightflow
-ReadWritePaths=/var/backups/insightflow /var/lib/insightflow-status
+ReadWritePaths=/var/backups/insightflow
 PrivateTmp=true
 ProtectHome=true
 PrivateDevices=true

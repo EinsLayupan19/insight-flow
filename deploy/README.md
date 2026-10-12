@@ -69,26 +69,112 @@ Verify availability and terms again on the day you register. Never commit the Du
 
 ## Server setup (once)
 
-These commands assume a fresh Ubuntu 24.04 VM, a data volume mounted at `/var/lib/insightflow`, and an SSH user with `sudo`. They are a checklist, not a script. Read each one before running it.
+These commands assume a fresh Ubuntu 24.04 VM, a separate, empty block volume attached to it for the data, and an SSH user with `sudo`. They are a checklist, not a script. Read each one before running it, and run them in this order.
 
-1. **Firewall.** In the cloud console, allow inbound TCP 443 and 80 from anywhere, and 22 only from `OWNER_IP/32`. Nothing else, and **never 8000**. Also check the VM's own firewall (`sudo iptables -L INPUT -n`). Ubuntu images on some clouds, Oracle's among them by common report (not verified here), ship rules that also need 80/443 opened on the host.
-2. **SSH.** Key-only sign-in: in `/etc/ssh/sshd_config`, set `PasswordAuthentication no` and `PermitRootLogin no`, then `sudo systemctl reload ssh`. Keep the private key on the owner's computer only.
+1. **Firewall.** In the cloud console, allow inbound TCP 443 and 80 from anywhere, and 22 only from `OWNER_IP/32`. Nothing else, and **never 8000**. Also check the VM's own firewall (`sudo iptables -L INPUT -n`). Ubuntu images on some clouds, Oracle's among them by common report (not verified here), ship rules that also need 80/443 opened on the host. Home IP addresses change: if yours does, SSH stops working until you update this rule in the cloud console (no SSH needed for that).
+2. **SSH: key-only, verified.** See [SSH hardening](#ssh-hardening). Confirm a recovery path first (its step 0), and do not skip the second-session test.
 3. **Packages:** `sudo apt update && sudo apt install nginx certbot python3.12-venv sqlite3`, and turn on automatic security updates: `sudo apt install unattended-upgrades`.
-4. **User and folders:**
+4. **Service user:** `sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin insightflow`
+5. **Data volume:** format it, mount it by UUID, and mark it. See [Data volume](#data-volume). Everything below writes data to it, so it must be mounted first.
+6. **Folders**, created only once the volume is confirmed:
    ```bash
-   sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin insightflow
-   # The data volume's mount point too: a restore creates its working folder next to library/.
-   sudo install -d -o insightflow -g insightflow -m 0700 /var/lib/insightflow /var/lib/insightflow/library /var/backups/insightflow
-   # Failure notices for the login message: written by root, cleared by the backup job.
-   sudo install -d -o insightflow -g insightflow -m 0755 /var/lib/insightflow-status
-   sudo install -d -o root -g root -m 0755 /opt/insightflow/releases /var/www/letsencrypt
-   sudo install -d -o root -g insightflow -m 0750 /etc/insightflow
+   # Nothing below runs unless the data volume is mounted and marked (each line continues with &&).
+   mountpoint -q /var/lib/insightflow && test -f /var/lib/insightflow/.insightflow-volume &&
+   # On the volume (its top folder too: a restore creates its working folder next to library/):
+   sudo install -d -o insightflow -g insightflow -m 0700 /var/lib/insightflow /var/lib/insightflow/library /var/backups/insightflow &&
+   # Failure notices for the login message: root-owned, so the service user can neither write there nor plant a
+   # link for root to write through. Written and cleared only by root steps of the backup units.
+   sudo install -d -o root -g root -m 0755 /var/lib/insightflow-status &&
+   sudo install -d -o root -g root -m 0755 /opt/insightflow/releases /var/www/letsencrypt &&
+   sudo install -d -o root -g insightflow -m 0750 /etc/insightflow &&
+   echo "folders created" || echo "STOP: the data volume is not mounted and marked (see Data volume)"
    ```
    Keep `/var/backups/insightflow` on a different disk from the data volume and from the system disk if you can: full backups add up (see [Disk space and retention](#disk-space-and-retention)). Either way, copy backups off the server (see [Backups](#backups)).
-5. **Settings:** copy `insightflow.env.example` to `/etc/insightflow/insightflow.env`, replace `INSIGHTFLOW_HOSTNAME`, then `sudo chown root:insightflow /etc/insightflow/insightflow.env && sudo chmod 0640 /etc/insightflow/insightflow.env`.
-6. **First release:** follow [Deploying a release](#deploying-a-release), steps 1 to 4, then step 5a ([First release only](#5a-first-release-only)). This creates `/opt/insightflow/current`, which every service below uses. There is nothing to back up yet.
-7. **Services:** copy the four files in `systemd/` to `/etc/systemd/system/`, then run `sudo systemctl daemon-reload && sudo systemctl enable --now insightflow`. Check readiness ([Health checks](#health-checks)): this first request creates the empty library database.
-8. **Backups and alerts:** `sudo systemctl enable --now insightflow-backup.timer`, then `sudo systemctl start insightflow-backup.service` and check that it succeeded (`systemctl status insightflow-backup.service`). Install the login message: `sudo install -o root -g root -m 0755 motd/90-insightflow /etc/update-motd.d/90-insightflow`. See [Alerts](#alerts).
+7. **Settings:** copy `insightflow.env.example` to `/etc/insightflow/insightflow.env`, replace `INSIGHTFLOW_HOSTNAME`, then `sudo chown root:insightflow /etc/insightflow/insightflow.env && sudo chmod 0640 /etc/insightflow/insightflow.env`.
+8. **First release:** follow [Deploying a release](#deploying-a-release), steps 1 to 4, then step 5a ([First release only](#5a-first-release-only)). This creates `/opt/insightflow/current`, which every service below uses. There is nothing to back up yet.
+9. **Services:** copy the four files in `systemd/` to `/etc/systemd/system/`, then run `sudo systemctl daemon-reload && sudo systemctl enable --now insightflow`. Confirm the volume (`findmnt /var/lib/insightflow`), then check readiness ([Health checks](#health-checks)). This first request creates the empty library database on the volume. Both services refuse to start if the volume is not mounted or has no marker.
+10. **Backups and alerts:** `sudo systemctl enable --now insightflow-backup.timer`, then `sudo systemctl start insightflow-backup.service` and check that it succeeded (`systemctl show -p Result insightflow-backup.service` says `Result=success`). Install the login message: `sudo install -o root -g root -m 0755 motd/90-insightflow /etc/update-motd.d/90-insightflow`. See [Alerts](#alerts).
+11. **Reboot test**, before any external access: see [Reboot test](#reboot-test).
+
+### SSH hardening
+
+**0. Before changing anything, confirm you have a way back in that does not use SSH.** A mistake here, or a home IP that changes, can lock you out. Check both of these in your cloud provider's own documentation and console now, while SSH still works. Do not assume any particular feature exists for your provider, account, or image; none was verified here.
+- **The firewall rules** (security list, network security group, or equivalent) can be edited in the provider's web console. That fixes a changed home IP without SSH.
+- **A console path to the instance itself** (for example a serial or "console connection" feature, if your provider offers one) and the sign-in it needs. Cloud images often have no password for the default user, so a serial console may be useless until you have prepared a way to sign in there. Find out what your provider documents and test it once.
+
+If you cannot confirm a recovery path, keep password-free key access as it is, skip the changes below, and note the risk.
+
+Ubuntu reads the files in `/etc/ssh/sshd_config.d/` **before** the rest of `/etc/ssh/sshd_config`, and for each setting **the first value read wins**. So a line added at the end of `sshd_config` can be silently overridden: cloud images often ship such a file. Don't assume what is there; look:
+
+```bash
+# a. What is in effect now (changes nothing):
+sudo sshd -T | grep -Ei '^(pubkeyauthentication|passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '
+ls -l /etc/ssh/sshd_config.d/
+```
+b. Make sure **this** session signed in with a key, not a password. If you can't confirm it, stop, or you may lock yourself out. On your computer (PowerShell): `ssh -v owner@INSIGHTFLOW_HOSTNAME exit 2>&1 | Select-String "Authenticated"` must say `using "publickey"`.
+```bash
+# c. A drop-in whose name sorts first, so its values win:
+printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin no' | sudo tee /etc/ssh/sshd_config.d/00-insightflow.conf > /dev/null
+# d. Check the whole configuration BEFORE applying it. sshd -t prints nothing when it is valid. Then the effective values:
+sudo sshd -t && sudo sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '
+#    expected: passwordauthentication no, kbdinteractiveauthentication no, permitrootlogin no
+# e. Apply. Sessions that are already open stay open.
+sudo systemctl reload ssh
+```
+- If `reload` says the unit is not active: Ubuntu 24.04 can start sshd through `ssh.socket` (not verified here). New connections then read the new configuration anyway, and step f is what counts.
+- **f. Keep this session open.** From your computer, open a **second** connection (`ssh owner@INSIGHTFLOW_HOSTNAME`) and run `sudo true` in it. Then check that passwords are refused: `ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive owner@INSIGHTFLOW_HOSTNAME` must end in `Permission denied`. Only then close the first session. If the second connection fails, use the still-open session to remove `/etc/ssh/sshd_config.d/00-insightflow.conf`, check with `sudo sshd -t`, and reload.
+- **If you lose access anyway:** use the recovery path you confirmed in step 0.
+  - If your IP changed, update the firewall rule in the web console.
+  - If the SSH settings are at fault, reach the instance through its console path and remove `/etc/ssh/sshd_config.d/00-insightflow.conf` (then `sudo sshd -t` and reload).
+  - What exactly your provider offers was not verified here.
+  - Keep the SSH private key on the owner's computer only.
+
+### Data volume
+
+The library lives on its own block volume, mounted at `/var/lib/insightflow`, so it survives replacing the VM or its boot disk. **Formatting destroys everything on the device.** Never take a device name or UUID from anywhere but this server's own output, and never format a device you have not proved empty.
+
+```bash
+# a. List the disks (changes nothing). The data volume is the whole disk whose SIZE matches the volume you
+#    attached in the cloud console: no partitions under it, no FSTYPE, no MOUNTPOINTS. The system disk carries "/".
+lsblk -o NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS,SERIAL,MODEL
+# b. Set DEV to that disk's PATH from the list, then prove it is empty (changes nothing):
+DEV=/dev/<the PATH you identified>
+sudo wipefs --no-act "${DEV:?}"            # must print nothing
+sudo blkid -p "$DEV"; echo "blkid: $?"     # must print only "blkid: 2" (no filesystem or partition table)
+lsblk -n -o MOUNTPOINTS "$DEV"             # must print nothing
+```
+If any of these shows a signature, a filesystem, a partition table, or a mount point, **stop**: it is not a new, empty volume. Compare with the cloud console's attachment details again. On Oracle Cloud the console shows a device path for each attached volume; that was not verified here.
+
+```bash
+# c. THE DESTRUCTIVE STEP: format the verified device.
+sudo mkfs.ext4 -L insightflow-data "${DEV:?}"
+# d. Read its UUID from the volume itself (never type one in):
+UUID=$(sudo blkid -s UUID -o value "$DEV"); echo "UUID=$UUID"; test -n "$UUID"
+# e. An empty mount point on the system disk, and an /etc/fstab line by UUID (with a copy of the old file):
+sudo install -d -o root -g root -m 0755 /var/lib/insightflow
+sudo cp /etc/fstab /etc/fstab.before-insightflow
+echo "UUID=${UUID:?} /var/lib/insightflow ext4 defaults,nofail,x-systemd.device-timeout=30s,nodev,nosuid,noexec 0 2" | sudo tee -a /etc/fstab
+sudo findmnt --verify                      # checks /etc/fstab; fix any error before going on
+sudo systemctl daemon-reload               # systemd reads the new line
+sudo mount /var/lib/insightflow
+# f. Verify what is actually mounted there:
+findmnt -o TARGET,SOURCE,FSTYPE,UUID,OPTIONS /var/lib/insightflow
+test "$(findmnt -n -o UUID /var/lib/insightflow)" = "$UUID" && echo "the right volume is mounted"
+# g. Only now, mark it as InsightFlow's data volume (both services refuse to start without this file):
+sudo touch /var/lib/insightflow/.insightflow-volume && sudo chmod 0444 /var/lib/insightflow/.insightflow-volume
+```
+
+**Why these options:**
+- `nofail` lets the server boot even if the volume is missing, so you can still sign in and repair. Without it, a missing volume stops the boot in emergency mode, reachable only through the cloud console.
+- What keeps a missing volume safe:
+  - The app is bound to the volume's mount unit (`BindsTo=var-lib-insightflow.mount`). It does not start without it, and systemd stops it if the volume disappears while it runs.
+  - The backup job only *wants* the mount, so a missing volume runs into its own checks and fails in a way that triggers its [alert](#alerts). A failed *required* mount would cancel the job without running `OnFailure`.
+  - Before starting, both also check that `/var/lib/insightflow` is a mount point and that the marker file exists.
+  - The app therefore never creates an empty library on the system disk, and the backup job fails and alerts instead of backing up an empty library (which would count as a clean backup).
+  - The login message names the cause.
+  - These are documented systemd behaviors; verify them with the [Reboot test](#reboot-test).
+- `nodev,nosuid,noexec` fit a data-only volume: nothing on it is ever run.
+- The marker lives on the volume, so it is absent whenever the volume is not mounted. Never create it in the empty mount point. The service user owns the volume's top folder and could delete the marker, but that only makes both services refuse to run.
 
 ### HTTPS and sign-in
 
@@ -139,37 +225,50 @@ On the owner's computer, from a clean checkout of the commit to deploy (`git sta
 
 On the server:
 
+**Every SSH session** that runs the steps below starts by naming the release. Variables do not survive a new session. Each command below uses `${R:?...}`, which makes it refuse to run when `R` is not set, instead of acting on an empty path.
+```bash
+C=<full commit>; R=/opt/insightflow/releases/$C
+```
+
 3. Unpack into a new release folder and install the **runtime** dependencies only:
    ```bash
-   C=<commit>; R=/opt/insightflow/releases/$C
-   sudo mkdir "$R" && sudo tar -xzf /tmp/insightflow-$C.tar.gz -C "$R"
-   sudo mkdir -p "$R/frontend" && sudo tar -xzf /tmp/insightflow-dist-$C.tar.gz -C "$R/frontend"
-   sudo python3.12 -m venv "$R/backend/.venv"
-   sudo "$R/backend/.venv/bin/pip" install --require-virtualenv -r "$R/backend/requirements.txt"
+   sudo mkdir "${R:?set C and R first}" && sudo tar -xzf "/tmp/insightflow-${C:?}.tar.gz" -C "$R" &&
+   sudo mkdir -p "$R/frontend" && sudo tar -xzf "/tmp/insightflow-dist-$C.tar.gz" -C "$R/frontend" &&
+   sudo python3.12 -m venv "$R/backend/.venv" &&
+   sudo "$R/backend/.venv/bin/pip" install --require-virtualenv --only-binary=:all: --no-deps -r "$R/backend/requirements.txt" &&
+   sudo "$R/backend/.venv/bin/pip" check
    ```
+   - **Exactly the lock file:** `--no-deps` installs the listed versions and nothing else, because `requirements.txt` already lists every package for Linux, indirect ones included. `pip check` then confirms that what is installed is consistent.
+   - **Ready-built wheels only:** `--only-binary=:all:` means nothing is compiled from source as root. On 2026-10-13, PyPI had wheels of every locked version for CPython 3.12 and 3.14 on Linux arm64 and x86-64. If a future pin has no wheel, the install fails: stop, and don't drop the flag on the server.
+   - **No hash check yet.** The lock files carry no `--hash` lines, so `pip install --require-hashes` is not possible. Installs are pinned by version and fetched from PyPI over HTTPS, but a replaced file would not be detected. Adding hashes means regenerating both lock files with `uv pip compile … --generate-hashes`, from the same tested versions (constraint file as in the main README, "Dependencies"); then add `--require-hashes` here. That is a lock-file change, so it is a separate, reviewed step.
 4. **Run the test suite on the server's Python 3.12** (this is the real 3.12 check), in a separate throwaway environment:
    ```bash
-   python3.12 -m venv /tmp/insightflow-tests && /tmp/insightflow-tests/bin/pip install -r "$R/backend/requirements-dev.txt"
-   (cd "$R/backend" && PYTHONDONTWRITEBYTECODE=1 /tmp/insightflow-tests/bin/python -m pytest -q -p no:cacheprovider)
+   python3.12 -m venv /tmp/insightflow-tests &&
+   /tmp/insightflow-tests/bin/pip install --only-binary=:all: --no-deps -r "${R:?set C and R first}/backend/requirements-dev.txt" &&
+   /tmp/insightflow-tests/bin/pip check
+   (cd "${R:?set C and R first}/backend" && PYTHONDONTWRITEBYTECODE=1 /tmp/insightflow-tests/bin/python -m pytest -q -p no:cacheprovider)
    rm -rf /tmp/insightflow-tests
    ```
    The tests use temporary folders, never `/var/lib/insightflow`. Stop here if anything fails.
 
 #### 5a. First release only
 
-There is no previous release and no library yet, so there is nothing to back up. Create the `current` link, then continue with [Server setup](#server-setup-once), step 7:
+There is no previous release and no library yet, so there is nothing to back up. Create the `current` link, then continue with [Server setup](#server-setup-once), step 9:
 ```bash
-test ! -e /opt/insightflow/current && sudo ln -s "$R" /opt/insightflow/current   # refuses if a release is already live
+# Refuses unless R is a prepared release and no release is live yet.
+test -x "${R:?set C and R first}/backend/.venv/bin/python" && test ! -e /opt/insightflow/current &&
+sudo ln -s "$R" /opt/insightflow/current && readlink /opt/insightflow/current
 ```
 
 #### 5b. Every later release: back up, then switch
 
-The previous release stays in place for rollback.
+The previous release stays in place for rollback. Each line runs only if the one before succeeded, so nothing is switched unless the backup succeeded:
 ```bash
-sudo systemctl start insightflow-backup.service          # waits for the backup; stop here if it fails
-systemctl show -p Result insightflow-backup.service      # must say Result=success
-sudo ln -sfn "$R" /opt/insightflow/current.new && sudo mv -T /opt/insightflow/current.new /opt/insightflow/current
-sudo systemctl restart insightflow
+test -x "${R:?set C and R first}/backend/.venv/bin/python" &&
+sudo systemctl start insightflow-backup.service &&
+test "$(systemctl show -p Result --value insightflow-backup.service)" = success &&
+sudo ln -sfn "$R" /opt/insightflow/current.new && sudo mv -T /opt/insightflow/current.new /opt/insightflow/current &&
+sudo systemctl restart insightflow && readlink /opt/insightflow/current
 ```
 
 6. Run [After every deployment](#after-every-deployment). Remove the files in `/tmp`. Keep the last two or three release folders for rollback; remove older ones with `sudo rm -r /opt/insightflow/releases/<old commit>` (never the one `current` points to: `readlink /opt/insightflow/current`).
@@ -179,12 +278,16 @@ sudo systemctl restart insightflow
 **After a later release (5b):**
 1. Point `current` back at the previous release and restart:
    ```bash
-   sudo ln -sfn /opt/insightflow/releases/<previous commit> /opt/insightflow/current.new
+   P=/opt/insightflow/releases/<previous commit>
+   test -x "${P:?}/backend/.venv/bin/python" && sudo ln -sfn "$P" /opt/insightflow/current.new &&
    sudo mv -T /opt/insightflow/current.new /opt/insightflow/current && sudo systemctl restart insightflow
    ```
-2. Check readiness. Migrations only move forward. If the new release added one, the old code reports `"The database schema is not up to date."` (503). Then restore the backup taken in step 5b (see [Restore](#restore)), with the previous release running. Changes made after that backup are not in it, but the newer library is kept aside, not deleted.
+2. Check readiness. Migrations only move forward. If the new release added one, the old code reports `"The database schema is not up to date."` (503).
+   - In that case, restore the backup taken in step 5b. Follow [Restore](#restore) exactly: it pauses scheduled backups, **stops the service for the restore itself**, and starts it again afterwards, now on the previous release, because `current` points to it.
+   - Never restore while the service is running.
+   - Changes made after that backup are not in it, but the newer library is kept aside, not deleted.
 
-**After the first release (5a):** there is no earlier release to go back to. Stop the service (`sudo systemctl stop insightflow insightflow-backup.timer`), fix the problem, and deploy a corrected release with steps 1 to 4 and 5b. 5b's backup also covers anything saved meanwhile. Only if nothing worth keeping was saved, you may instead point the link at the corrected release directly (`sudo ln -sfn "$R" /opt/insightflow/current.new && sudo mv -T /opt/insightflow/current.new /opt/insightflow/current`).
+**After the first release (5a):** there is no earlier release to go back to. Stop the service (`sudo systemctl stop insightflow insightflow-backup.timer`), fix the problem, and deploy a corrected release with steps 1 to 4 and 5b. 5b's backup also covers anything saved meanwhile. The timer is started again by `systemctl start insightflow-backup.timer` (it stays enabled, so a reboot also restarts it). Only if nothing worth keeping was saved, you may instead point the link at the corrected release directly (`sudo ln -sfn "${R:?}" /opt/insightflow/current.new && sudo mv -T /opt/insightflow/current.new /opt/insightflow/current`).
 
 ## Health checks
 
@@ -194,7 +297,7 @@ sudo systemctl restart insightflow
 | Readiness | `curl -fsS http://127.0.0.1:8000/api/health/ready` | `200`, `"status":"ready"`. `503` lists what failed (database, data folder); details are in `journalctl -u insightflow`. |
 | Service | `systemctl status insightflow`, `journalctl -u insightflow -n 50` | `active (running)`, no errors |
 
-Readiness is not reachable from outside (nginx answers 404). The server runs it locally.
+Readiness is not reachable from outside (nginx answers 404). The server runs it locally. It only proves the database opens, so after a reboot or any storage change first confirm the volume (`findmnt /var/lib/insightflow` and the marker). Both services refuse to start without it, so a running app means the checks passed.
 
 ## After every deployment
 
@@ -263,17 +366,22 @@ A simple check that needs no setup: when you copy a backup home, keep a note of 
 
 **Copy to the owner's computer (weekly):**
 ```bash
-# server: package one backup for your SSH user (backups are readable by "insightflow" only)
+# server: package one backup into your own home folder, readable only by you. Root reads the backup (it is
+# readable by "insightflow" only); the file is created by your shell under umask 077, so it is mode 0600.
 B=insightflow-backup-<UTC time>
-sudo tar -C /var/backups/insightflow -czf /tmp/$B.tar.gz $B && sudo chown "$USER" /tmp/$B.tar.gz
+(umask 077 && sudo tar -C /var/backups/insightflow -czf - "${B:?}" > "$HOME/$B.tar.gz") && ls -l "$HOME/$B.tar.gz"   # -rw-------
 ```
 ```powershell
-# owner's computer, then remove /tmp/$B.tar.gz on the server
-scp owner@INSIGHTFLOW_HOSTNAME:/tmp/<backup folder>.tar.gz .
+# owner's computer
+scp owner@INSIGHTFLOW_HOSTNAME:<backup folder>.tar.gz .
 tar -xzf <backup folder>.tar.gz
 backend\.venv\Scripts\python.exe -m app.storage.backup verify <backup folder>   # from the repository's backend folder
 ```
-The copy holds your raw sales data. Store it on an encrypted disk, outside OneDrive or other synced folders unless you mean to sync it.
+```bash
+# server, once the copy is verified on your computer:
+rm -- "$HOME/${B:?}.tar.gz"
+```
+The copy holds your raw sales data. Never put it in `/tmp` or another shared folder. Store it on an encrypted disk, outside OneDrive or other synced folders unless you mean to sync it.
 
 ### Disk space and retention
 
@@ -293,7 +401,7 @@ The copy holds your raw sales data. Store it on an encrypted disk, outside OneDr
 
 - **Incomplete backups** (valid, but a dataset's stored file was missing or changed) follow the windows like any other. So a file that stays missing does not stop retention: old incomplete backups outside the windows are deleted, while the last clean backup and the most recent valid backup are kept. The windows never pick a damaged backup in place of a valid one.
 - The windows count days and months that **have** backups, not calendar time. If backups stop for a month, the last good ones are not aged out.
-- **If no backup verifies cleanly, nothing is deleted** and prune fails, so the job fails and alerts. That happens when a file was already missing before the first backup: [repair the dataset](#repairing-a-dataset-whose-stored-file-is-missing), and the next backup is clean.
+- **If no backup verifies cleanly, nothing is deleted** and prune fails, so the job fails and alerts. That happens when a file was already missing before the first backup: [repair the dataset](#repairing-a-dataset-whose-stored-file-is-missing), and the next backup is clean. On a folder with **no backups at all** (a wrong `--dest`, or before the first backup), `prune --apply` says exactly that, deletes nothing (not even leftover folders), and exits 1. A preview says "No backups found".
 - Prune only touches folders named exactly `insightflow-backup-YYYYMMDDTHHMMSSZ`, unfinished `.insightflow-backup-...partial-...` folders older than a day (left by runs that were killed outright), and `...deleting-...` folders of an interrupted prune. Your own files and links in that folder are never touched.
 - **One `prune --apply` at a time.** It takes a lock (`.insightflow-prune.lock` in the backup folder; the OS releases it when the process ends, so it never goes stale) and checks the clean backup again just before deleting. A second one exits 1 without deleting anything. Each deleted folder is first renamed to `.…deleting-…`, so an interrupted prune never leaves a broken folder under a backup's name; the next prune finishes it.
 - **Limitations.** Backups and restores do not take the lock. They don't need it: a prune only deletes folders that existed when it planned, and a restore from a folder being deleted fails without restoring anything. Deleting a backup by hand is not guarded. On nights when the backup exits 2 (incomplete), systemd skips the `prune` line in the job, so while a dataset is broken, prune by hand (below) or repair it.
@@ -333,6 +441,8 @@ Note each dataset's id and SHA-256. The full hash is also in `GET /api/datasets/
 
 **2a. Put the original file back: keeps the dataset and its whole analysis history.** The stored file is named after the SHA-256 of its exact bytes, so only the identical original fits. **Re-uploading it through the page does not repair it**: the app recognizes the content as already saved and leaves the missing file missing. Instead:
 ```bash
+# Only on the mounted data volume:
+mountpoint -q /var/lib/insightflow && test -f /var/lib/insightflow/.insightflow-volume && echo "data volume ok" || echo "STOP: data volume not mounted"
 SHA=<the dataset's sha256>; LIB=/var/lib/insightflow/library
 # The original bytes: your own copy of that CSV, or a clean backup's copy, which its SHA256SUMS already covers:
 #   /var/backups/insightflow/<an older backup>/uploads/$SHA.csv
@@ -360,6 +470,7 @@ There is **no email or push notification**: it would need a mail server or an ou
 | A backup fails: error, exit code 2 (incomplete), not enough space, prune refusing, or the 45-minute timeout | **The SSH login message** (`motd/90-insightflow`): `*** InsightFlow: the last backup FAILED (<time>)`. The notice stays until a backup succeeds. Also `systemctl --failed`, `journalctl -u insightflow-backup -n 50`, and `journalctl -p err -t insightflow-backup`. |
 | Backups stopped altogether (timer disabled, server off at the time, ...) | The login message: `no backup in the last 2 days`. Also `systemctl list-timers insightflow-backup.timer`. |
 | The API is down | The login message, and `systemctl status insightflow` |
+| The data volume is not mounted, or has no marker (both services then refuse to run) | The login message, `findmnt /var/lib/insightflow`, and `journalctl -u insightflow -n 20` (the failed `ExecStartPre` check). A backup attempt also fails and leaves the backup-failed notice. |
 | The backup disk is 90% full | The login message |
 
 **Timeout.** A backup of a small library takes seconds. The job is stopped after 45 minutes (`TimeoutStartSec`), which means something is stuck, for example a database lock that is never released.
@@ -375,16 +486,29 @@ This only helps if you sign in. Make a habit of `ssh` to the server at least wee
 A restore never writes over a library. It checks the backup first, then fills a **new or empty** folder. The current library is moved aside, never deleted.
 
 ```bash
-sudo systemctl stop insightflow
-sudo mv /var/lib/insightflow/library /var/lib/insightflow/library.before-restore-$(date -u +%Y%m%dT%H%M%SZ)
-cd /opt/insightflow/current/backend
+# 1. Pause scheduled backups (no attempt, and no false alert, while the library is moved aside), and wait for a
+#    backup that is already running to finish.
+sudo systemctl stop insightflow-backup.timer
+while systemctl is-active --quiet insightflow-backup.service; do sleep 5; done
+# 2. Stop the app, check the data volume, move the current library aside, restore.
+#    Each line continues only if the one before succeeded.
+sudo systemctl stop insightflow &&
+mountpoint -q /var/lib/insightflow && test -f /var/lib/insightflow/.insightflow-volume &&
+sudo mv /var/lib/insightflow/library "/var/lib/insightflow/library.before-restore-$(date -u +%Y%m%dT%H%M%SZ)" &&
+cd /opt/insightflow/current/backend &&
 sudo -u insightflow .venv/bin/python -m app.storage.backup restore /var/backups/insightflow/<backup folder> \
      --target /var/lib/insightflow/library
-sudo systemctl start insightflow
-curl -fsS http://127.0.0.1:8000/api/health/ready
+echo "restore exit code: $?"     # 0 complete; 2 restored but incomplete (see the warnings); 1 nothing restored
 ```
-
-- **Requires the service to be stopped.** It is the only step that does.
+- If the exit code is `1`, nothing was restored. The library you moved aside is untouched: move it back with `sudo mv /var/lib/insightflow/library.before-restore-<time> /var/lib/insightflow/library` before starting the app.
+```bash
+# 3. Start the app, check it, and ALWAYS resume scheduled backups, even if a step above failed.
+sudo systemctl start insightflow; curl -fsS http://127.0.0.1:8000/api/health/ready
+sudo systemctl start insightflow-backup.timer && systemctl is-active insightflow-backup.timer   # "active"
+```
+- The timer stays *enabled* while it is stopped, so a reboot also restarts it. If a scheduled run was missed during the pause, it runs once right after you start the timer again (`Persistent=true`). If you forget step 3, the login message reports "no backup in the last 2 days".
+- **Requires the app to be stopped.** It is the only procedure that does.
+- The data-volume check in step 2 keeps a restore from landing on the system disk when the volume is missing.
 - **Integrity:** the backup is verified, then every file is copied from a fresh read that must match the checksum just verified. A backup changed or swapped in between is refused, and nothing is restored. Links and special files inside a backup are refused.
 - A backup made by a newer InsightFlow (higher schema version) is refused. An older one is upgraded by the app's migrations when it starts.
 - Datasets whose files were missing at backup time come back with **Missing or changed**, as they were. The restore then exits with code `2` (incomplete) and lists them.
@@ -394,6 +518,8 @@ curl -fsS http://127.0.0.1:8000/api/health/ready
 
 All of these must be true before the host name points at the server:
 
+- [ ] Data volume mounted by UUID from `/etc/fstab`, marker present, and both parts of the [Reboot test](#reboot-test) passed
+- [ ] SSH: effective settings checked with `sshd -T`, and a second key-based session tested ([SSH hardening](#ssh-hardening))
 - [ ] HTTPS with a valid certificate; HTTP only redirects
 - [ ] Owner-only sign-in on every path (`401` without it); strong password
 - [ ] Cross-site requests refused by nginx and by the app (`403` in the checks)
@@ -403,6 +529,70 @@ All of these must be true before the host name points at the server:
 - [ ] `APP_ENV=production` with a real `ALLOWED_HOSTS`; `INSIGHTS_NARRATOR=none`
 - [ ] Backups running, one verified, and one test restore done; the login message installed; the backup disk checked
 - [ ] Automatic security updates on
+
+### Reboot test
+
+**Part 1: after a normal reboot, everything comes back on the right disk.**
+```bash
+sudo reboot
+# reconnect, then (nothing here changes anything):
+grep ' /var/lib/insightflow ' /etc/fstab                               # the UUID line from "Data volume"
+findmnt -o TARGET,SOURCE,FSTYPE,UUID,OPTIONS /var/lib/insightflow      # mounted; same UUID as in /etc/fstab; ext4
+test -f /var/lib/insightflow/.insightflow-volume && echo "marker ok"
+systemctl cat insightflow.service insightflow-backup.service | grep -E 'BindsTo|Wants|ExecStartPre'
+#   expected: the app with BindsTo=var-lib-insightflow.mount, the backup with Wants=var-lib-insightflow.mount, and in
+#   both the "+/usr/bin/mountpoint -q /var/lib/insightflow" and ".insightflow-volume" checks
+systemctl show -p BindsTo insightflow.service; systemctl show -p Wants insightflow-backup.service   # include var-lib-insightflow.mount
+systemctl is-active insightflow insightflow-backup.timer                # active, active
+curl -fsS http://127.0.0.1:8000/api/health/ready                        # only now, after the checks above
+sudo systemctl start insightflow-backup.service; systemctl show -p Result insightflow-backup.service   # Result=success
+```
+
+**Part 2: without the volume, the app and the backup refuse to run.** This is safe:
+- the volume is only unmounted, never changed;
+- the mask is `--runtime`, so a reboot removes it if anything goes wrong;
+- the last block puts everything back.
+
+Run it while nobody uses the app.
+```bash
+sudo systemctl stop insightflow-backup.timer insightflow
+while systemctl is-active --quiet insightflow-backup.service; do sleep 5; done
+sudo umount /var/lib/insightflow                     # refuses if something still uses the volume: then stop and look
+UNIT=$(systemd-escape -p --suffix=mount /var/lib/insightflow)    # var-lib-insightflow.mount
+sudo systemctl mask --runtime "$UNIT"                 # keeps systemd from mounting it again; gone after a reboot
+ls -A /var/lib/insightflow                            # the bare mount point on the system disk: must print nothing
+mountpoint -q /var/lib/insightflow || echo "not mounted (expected)"
+test -f /var/lib/insightflow/.insightflow-volume || echo "no marker (expected): the services' checks would fail"
+sudo systemctl start insightflow; systemctl is-active insightflow                  # must NOT be "active"
+sudo systemctl start insightflow-backup.service; systemctl show -p Result insightflow-backup.service   # not "success"
+cat /var/lib/insightflow-status/backup-failed         # the failure notice was written: the alert works
+ls -A /var/lib/insightflow                            # still nothing: nothing was written to the system disk
+```
+What happened, by unit:
+- **The app:** its binding to the masked mount refused the start.
+- **The backup job:** it only wants the mount, so it started, its `mountpoint` check failed, and `OnFailure` wrote the notice.
+
+The same checks refuse if the `/etc/fstab` line is ever missing.
+
+**Part 3: a mounted volume without the marker** (for example the wrong volume) is refused too:
+```bash
+sudo systemctl unmask --runtime "$UNIT" && sudo mount /var/lib/insightflow     # the right volume again
+sudo mv /var/lib/insightflow/.insightflow-volume /var/lib/insightflow/.insightflow-volume.test
+sudo systemctl start insightflow; systemctl is-active insightflow                  # must NOT be "active"
+sudo systemctl start insightflow-backup.service; systemctl show -p Result insightflow-backup.service   # not "success"
+sudo mv /var/lib/insightflow/.insightflow-volume.test /var/lib/insightflow/.insightflow-volume
+```
+Put everything back:
+```bash
+sudo systemctl unmask --runtime "$(systemd-escape -p --suffix=mount /var/lib/insightflow)"   # harmless if already unmasked
+sudo systemctl reset-failed insightflow.service insightflow-backup.service
+mountpoint -q /var/lib/insightflow || sudo mount /var/lib/insightflow
+findmnt /var/lib/insightflow && test -f /var/lib/insightflow/.insightflow-volume && echo "volume back"
+sudo systemctl start insightflow insightflow-backup.timer
+curl -fsS http://127.0.0.1:8000/api/health/ready
+sudo systemctl start insightflow-backup.service; systemctl show -p Result insightflow-backup.service   # success; clears the notice
+```
+Not tested here: these are Linux commands written from the documented behavior of systemd and util-linux. Run them on the server and compare every "expected" result.
 
 ## Remaining blockers before any public deployment
 

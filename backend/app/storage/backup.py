@@ -459,6 +459,11 @@ def prune_backups(
 
     with _prune_lock(destination):
         plan = _plan_prune(destination, keep_daily, keep_monthly, now)
+        if not plan.keep and not plan.delete:  # no backups at all: no clean one either, so nothing may be deleted
+            raise BackupError(
+                f"No backups in {destination} (folders named {BACKUP_PREFIX}YYYYMMDDTHHMMSSZ), so nothing was deleted. "
+                "Check --dest, and run a backup first."
+            )
         # The plan took a while (verification); make sure the backup that must survive still does.
         if plan.clean is None or _status(plan.clean) != "clean":
             raise BackupError(f"{plan.clean.name if plan.clean else 'The clean backup'} no longer verifies cleanly, so nothing was deleted.")
@@ -691,6 +696,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _print_prune(plan: PrunePlan) -> int:
+    if not plan.keep and not plan.delete:
+        print(f"No backups found (folders named {BACKUP_PREFIX}YYYYMMDDTHHMMSSZ): nothing to prune.")
     for path, reasons in plan.keep.items():
         print(f"KEEP    {path.name}  ({'; '.join(reasons)})")
     for path in plan.delete:
