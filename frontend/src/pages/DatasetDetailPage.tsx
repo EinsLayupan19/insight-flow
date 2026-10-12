@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import type { AnalysisKind, AnalysisRecord, AnalysisSummary, DatasetDetail, TrendsAnalysisRecord } from '../api/datasets'
+import type { AnalysisRecord, AnalysisSummary, DatasetDetail, PerformanceAnalysisRecord, TrendsAnalysisRecord } from '../api/datasets'
 import { ColumnMappingPanel } from '../components/ColumnMappingPanel'
 import { Callout, LoadingState, StatusBadge } from '../components/Feedback'
 import { Spinner } from '../components/Icons'
 import { MetricsView } from '../components/MetricsReport'
+import { PerformanceView } from '../components/PerformanceReport'
 import { QualityReportView } from '../components/QualityReport'
 import { TrendsView } from '../components/TrendsReport'
-import { useDatasetDetail, type DatasetAction } from '../hooks/useDatasets'
+import { useDatasetDetail, type AnalysisRun, type DatasetAction } from '../hooks/useDatasets'
 import { navigate } from '../hooks/useRoute'
 import { explicitMapping, type ColumnMapping } from '../lib/columnMapping'
 import { ANALYSIS_TITLES, describeHighlights, describeMapping, shortHash } from '../lib/datasetDisplay'
@@ -14,7 +15,8 @@ import { formatBytes, formatDateTime, pluralize } from '../lib/format'
 import { hasUnavailableMetrics } from '../lib/metricDisplay'
 import { latestData, type RequestState } from '../lib/requestState'
 import { datasetHref, routeHref } from '../lib/route'
-import type { TrendOptions } from '../lib/trends'
+import { DEFAULT_PERFORMANCE_OPTIONS, type PerformanceOptions } from '../lib/performance'
+import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
 
 type DatasetDetailPageProps = {
   datasetId: number
@@ -26,6 +28,7 @@ const RUNNING_TEXT: Record<DatasetAction, string> = {
   profile: 'Running a data-quality check on the stored file…',
   metrics: 'Calculating retail metrics from the stored file…',
   trends: 'Calculating sales trends from the stored file…',
+  performance: 'Ranking products and categories in the stored file…',
   delete: 'Deleting the dataset…',
 }
 
@@ -71,8 +74,8 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
   const busy = detail.running !== null
   const canAnalyze = !busy && dataset.file_stored
 
-  const run = async (kind: AnalysisKind, mapping?: ColumnMapping, trendOptions?: TrendOptions) => {
-    const record = await detail.runAnalysis(kind, mapping, trendOptions)
+  const run = async (analysisRun: AnalysisRun) => {
+    const record = await detail.runAnalysis(analysisRun)
     if (record) navigate(datasetHref(datasetId, record.id))
   }
 
@@ -99,14 +102,23 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
             </p>
           </div>
           <div className="dataset-actions">
-            <button type="button" className="button-primary" disabled={!canAnalyze} onClick={() => void run('profile')}>
+            <button type="button" className="button-primary" disabled={!canAnalyze} onClick={() => void run({ kind: 'profile' })}>
               Run data-quality check
             </button>
-            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run('metrics')}>
+            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run({ kind: 'metrics', mapping: {} })}>
               Calculate metrics
             </button>
-            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run('trends')}>
+            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run({ kind: 'trends', mapping: {}, options: DEFAULT_TREND_OPTIONS })}
+            >
               Calculate trends
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={!canAnalyze}
+              onClick={() => void run({ kind: 'performance', mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS })}
+            >
+              Rank products
             </button>
             <button type="button" className="button-ghost danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
               Delete dataset
@@ -190,8 +202,8 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           detail.analyses.status === 'loading' && <LoadingState>Loading the history…</LoadingState>
         ) : analyses.length === 0 ? (
           <p className="empty-state">
-            No analyses recorded yet. Run a data-quality check, calculate metrics, or calculate trends to start the
-            history.
+            No analyses recorded yet. Run a data-quality check, calculate metrics or trends, or rank products to start
+            the history.
           </p>
         ) : (
           <HistoryList datasetId={dataset.id} analyses={analyses} selectedId={detail.selectedId} />
@@ -203,8 +215,9 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           record={detail.record}
           dataset={dataset}
           busy={busy}
-          onApplyMapping={(mapping) => void run('metrics', mapping)}
-          onRunTrends={(mapping, trendOptions) => void run('trends', mapping, trendOptions)}
+          onApplyMapping={(mapping) => void run({ kind: 'metrics', mapping })}
+          onRunTrends={(mapping, options) => void run({ kind: 'trends', mapping, options })}
+          onRunPerformance={(mapping, options) => void run({ kind: 'performance', mapping, options })}
           onRetry={detail.reload}
         />
       )}
@@ -285,11 +298,12 @@ type AnalysisViewerProps = {
   busy: boolean
   onApplyMapping: (mapping: ColumnMapping) => void
   onRunTrends: (mapping: ColumnMapping, options: TrendOptions) => void
+  onRunPerformance: (mapping: ColumnMapping, options: PerformanceOptions) => void
   onRetry: () => void
 }
 
 /** A recorded result, exactly as stored. Changing the mapping records a new analysis; it never edits this one. */
-function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, onRetry }: AnalysisViewerProps) {
+function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, onRunPerformance, onRetry }: AnalysisViewerProps) {
   const data = latestData(record)
   return (
     <section className="card section-card" aria-labelledby="viewer-heading" aria-busy={record.status === 'loading'}>
@@ -324,6 +338,8 @@ function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, on
         <QualityReportView report={data.result} />
       ) : data.kind === 'trends' ? (
         <RecordedTrends record={data} dataset={dataset} disabled={busy || !dataset.file_stored} onRun={onRunTrends} />
+      ) : data.kind === 'performance' ? (
+        <RecordedPerformance record={data} dataset={dataset} disabled={busy || !dataset.file_stored} onRun={onRunPerformance} />
       ) : (
         <>
           <ColumnMappingPanel
@@ -365,6 +381,43 @@ function RecordedTrends({ record, dataset, disabled, onRun }: RecordedTrendsProp
       />
       <TrendsView
         trends={result}
+        columns={dataset.columns}
+        options={options}
+        busy={false}
+        disabled={disabled}
+        onChangeOptions={(next) => onRun(mapping, next)}
+      />
+    </>
+  )
+}
+
+type RecordedPerformanceProps = {
+  record: PerformanceAnalysisRecord
+  dataset: DatasetDetail
+  disabled: boolean
+  onRun: (mapping: ColumnMapping, options: PerformanceOptions) => void
+}
+
+/** Recorded rankings. A different label column or column choice records a new performance analysis. */
+function RecordedPerformance({ record, dataset, disabled, onRun }: RecordedPerformanceProps) {
+  const mapping = explicitMapping(record.column_mapping) // the metrics roles; label columns are options
+  const options: PerformanceOptions = {
+    productColumn: record.column_mapping.product ?? '',
+    categoryColumn: record.column_mapping.category ?? '',
+  }
+  const { products } = record.result
+  return (
+    <>
+      <ColumnMappingPanel
+        columns={dataset.columns}
+        applied={mapping}
+        used={record.result.columns_used}
+        busy={disabled}
+        showHint={products.status === 'calculated' && products.revenue.status !== 'calculated'}
+        onApply={(choices) => onRun(choices, options)}
+      />
+      <PerformanceView
+        performance={record.result}
         columns={dataset.columns}
         options={options}
         busy={false}

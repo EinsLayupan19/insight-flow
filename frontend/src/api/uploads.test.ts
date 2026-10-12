@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, describeDetail } from './http'
-import { calculateMetrics, calculateTrends, profileCsv, validateCsv } from './uploads'
+import { calculateMetrics, calculatePerformance, calculateTrends, profileCsv, validateCsv } from './uploads'
 
 const file = new File(['order_id,quantity\nA1,2\n'], 'sales.csv', { type: 'text/csv' })
 
 const UPLOAD_OK = { filename: 'sales.csv', size_bytes: 22, row_count: 1, column_count: 2, columns: ['order_id', 'quantity'] }
 const PROFILE_OK = { filename: 'sales.csv', size_bytes: 22, profile: { row_count: 1, columns: [], definitions: {} } }
 const METRICS_OK = { filename: 'sales.csv', size_bytes: 22, metrics: { columns_used: {}, row_count: {} } }
+const PERFORMANCE_OK = { filename: 'sales.csv', size_bytes: 22, performance: { products: { groups: [] }, categories: { groups: [] } } }
 const TRENDS_OK = { filename: 'sales.csv', size_bytes: 22, trends: { grain: 'week', periods: [], revenue: {} } }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -77,6 +78,18 @@ describe('requests match the backend contract', () => {
     expect(form.get('quantity_column')).toBe('Qty')
     expect(form.has('order_id_column')).toBe(false)
   })
+
+  it('sends the product and category columns with explicit column choices to the performance endpoint', async () => {
+    const fetchMock = mockFetch(jsonResponse(PERFORMANCE_OK))
+
+    await expect(calculatePerformance(file, { revenue: 'Amount' }, { productColumn: 'SKU', categoryColumn: '' })).resolves.toEqual(PERFORMANCE_OK)
+
+    const { url, form } = sentRequest(fetchMock)
+    expect(url).toBe('/api/uploads/csv/performance')
+    expect(form.get('product_column')).toBe('SKU')
+    expect(form.get('revenue_column')).toBe('Amount')
+    expect(form.has('category_column')).toBe(false)
+  })
 })
 
 describe('errors are explained, not hidden', () => {
@@ -117,6 +130,8 @@ describe('errors are explained, not hidden', () => {
     await expect(calculateMetrics(file, {})).rejects.toThrow('not InsightFlow data')
     mockFetch(jsonResponse(METRICS_OK))
     await expect(calculateTrends(file, {}, { grain: 'month', dateColumn: '' })).rejects.toThrow('not InsightFlow data')
+    mockFetch(jsonResponse(TRENDS_OK))
+    await expect(calculatePerformance(file, {}, { productColumn: '', categoryColumn: '' })).rejects.toThrow('not InsightFlow data')
   })
 
   it('passes a user cancellation through unchanged so it can be ignored', async () => {

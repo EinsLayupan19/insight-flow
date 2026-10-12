@@ -18,6 +18,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from app.analytics.product_performance import (
+    ProductPerformance,
+    calculate_product_performance,
+    resolve_performance_columns,
+)
 from app.analytics.retail_metrics import MetricResult, RetailMetrics, calculate_retail_metrics, resolve_columns
 from app.analytics.sales_trends import DEFAULT_GRAIN, SalesTrends, calculate_sales_trends, resolve_trend_columns
 from app.datasets.models import (
@@ -27,6 +32,8 @@ from app.datasets.models import (
     DatasetSummary,
     MetricsAnalysis,
     MetricsHighlights,
+    PerformanceAnalysis,
+    PerformanceHighlights,
     ProfileAnalysis,
     ProfileHighlights,
     SaveDatasetResponse,
@@ -40,6 +47,8 @@ from app.storage.file_store import FileStore, sha256_of
 from app.storage.repository import AnalysisRow, DatasetRepository, DatasetRow
 
 logger = logging.getLogger(__name__)
+
+AnalysisResultRecord = ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis
 
 UPLOADS_DIRNAME = "uploads"
 MAX_FILENAME_LENGTH = 255
@@ -130,12 +139,12 @@ class DatasetService:
 
     # ---------- Analyses ----------
 
-    def run_analysis(self, dataset_id: int, request: AnalysisRequest) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
+    def run_analysis(self, dataset_id: int, request: AnalysisRequest) -> AnalysisResultRecord:
         """Analyze the stored file and record the result in the dataset's history."""
         row = self._dataset_row(dataset_id)
         parsed = parse_csv(self._files.read(row.sha256))  # StoredFileError if missing or changed
 
-        result: QualityReport | RetailMetrics | SalesTrends
+        result: QualityReport | RetailMetrics | SalesTrends | ProductPerformance
         parameters: dict[str, Any]
         if request.kind == "profile":
             result = profile_csv(parsed)
@@ -143,6 +152,10 @@ class DatasetService:
         elif request.kind == "metrics":
             columns = resolve_columns(parsed.columns, dict(request.column_mapping))  # ColumnMappingError
             result = calculate_retail_metrics(parsed, columns)
+            parameters = {"column_mapping": request.column_mapping}
+        elif request.kind == "performance":
+            performance_columns = resolve_performance_columns(parsed.columns, dict(request.column_mapping))
+            result = calculate_product_performance(parsed, performance_columns)
             parameters = {"column_mapping": request.column_mapping}
         else:
             grain = request.grain or DEFAULT_GRAIN
@@ -174,7 +187,7 @@ class DatasetService:
             rows = repo.list_analyses(dataset_id)
         return [_analysis_summary(row) for row in rows]
 
-    def get_analysis(self, dataset_id: int, analysis_id: int) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
+    def get_analysis(self, dataset_id: int, analysis_id: int) -> AnalysisResultRecord:
         with self._repository() as repo:
             if repo.get_dataset(dataset_id) is None:
                 raise DatasetNotFoundError(dataset_id)
@@ -230,7 +243,7 @@ def _summary(row: DatasetRow) -> DatasetSummary:
     )
 
 
-def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
+def _record(row: AnalysisRow) -> AnalysisResultRecord:
     common = {
         "id": row.id,
         "dataset_id": row.dataset_id,
@@ -240,6 +253,9 @@ def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis | TrendsAnaly
     }
     if row.kind == "profile":
         return ProfileAnalysis(kind="profile", result=QualityReport.model_validate_json(row.result_json), **common)
+    if row.kind == "performance":
+        result = ProductPerformance.model_validate_json(row.result_json)
+        return PerformanceAnalysis(kind="performance", result=result, **common)
     if row.kind == "trends":
         result = SalesTrends.model_validate_json(row.result_json)
         return TrendsAnalysis(kind="trends", grain=result.grain, result=result, **common)
@@ -248,13 +264,19 @@ def _record(row: AnalysisRow) -> ProfileAnalysis | MetricsAnalysis | TrendsAnaly
 
 def _analysis_summary(row: AnalysisRow) -> AnalysisSummary:
     record = _record(row)
-    highlights: ProfileHighlights | MetricsHighlights | TrendsHighlights
+    highlights: ProfileHighlights | MetricsHighlights | TrendsHighlights | PerformanceHighlights
     if isinstance(record, ProfileAnalysis):
         report = record.result
         highlights = ProfileHighlights(
             duplicate_row_count=report.duplicate_row_count,
             missing_value_count=sum(column.missing_count for column in report.columns),
             type_mismatch_count=sum(column.mismatch_count for column in report.columns),
+        )
+    elif isinstance(record, PerformanceAnalysis):
+        products, categories = record.result.products, record.result.categories
+        highlights = PerformanceHighlights(
+            product_count=products.group_count if products.status == "calculated" else None,
+            category_count=categories.group_count if categories.status == "calculated" else None,
         )
     elif isinstance(record, TrendsAnalysis):
         trends = record.result

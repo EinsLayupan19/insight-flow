@@ -6,6 +6,7 @@ import {
   listAnalyses,
   listDatasets,
   runMetricsAnalysis,
+  runPerformanceAnalysis,
   runProfileAnalysis,
   runTrendsAnalysis,
   type AnalysisKind,
@@ -18,7 +19,8 @@ import type { ColumnMapping } from '../lib/columnMapping'
 import { selectedAnalysisId } from '../lib/datasetDisplay'
 import { userMessage } from '../lib/errors'
 import { failedFrom, latestData, loadingFrom, type RequestState } from '../lib/requestState'
-import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
+import type { PerformanceOptions } from '../lib/performance'
+import type { TrendOptions } from '../lib/trends'
 
 const LOADING = { status: 'loading', previous: null } as const
 
@@ -47,6 +49,26 @@ export function useDatasetList() {
 }
 
 export type DatasetAction = AnalysisKind | 'delete'
+
+/** One analysis to run on a stored file, with the inputs its kind takes. */
+export type AnalysisRun =
+  | { kind: 'profile' }
+  | { kind: 'metrics'; mapping: ColumnMapping }
+  | { kind: 'trends'; mapping: ColumnMapping; options: TrendOptions }
+  | { kind: 'performance'; mapping: ColumnMapping; options: PerformanceOptions }
+
+function startRun(datasetId: number, run: AnalysisRun): Promise<AnalysisRecord> {
+  switch (run.kind) {
+    case 'profile':
+      return runProfileAnalysis(datasetId)
+    case 'metrics':
+      return runMetricsAnalysis(datasetId, run.mapping)
+    case 'trends':
+      return runTrendsAnalysis(datasetId, run.mapping, run.options)
+    case 'performance':
+      return runPerformanceAnalysis(datasetId, run.mapping, run.options)
+  }
+}
 
 /**
  * One saved dataset: its details, its analysis history, the analysis being viewed, and the
@@ -112,20 +134,11 @@ export function useDatasetDetail(datasetId: number, requestedAnalysisId: number 
 
   /** Run an analysis on the stored file. Resolves to the new record, or null if it failed (see actionError). */
   const runAnalysis = useCallback(
-    async (
-      kind: AnalysisKind,
-      mapping: ColumnMapping = {},
-      trendOptions: TrendOptions = DEFAULT_TREND_OPTIONS,
-    ): Promise<AnalysisRecord | null> => {
-      setRunning(kind)
+    async (run: AnalysisRun): Promise<AnalysisRecord | null> => {
+      setRunning(run.kind)
       setActionError(null)
       try {
-        const created =
-          kind === 'profile'
-            ? await runProfileAnalysis(datasetId)
-            : kind === 'metrics'
-              ? await runMetricsAnalysis(datasetId, mapping)
-              : await runTrendsAnalysis(datasetId, mapping, trendOptions)
+        const created = await startRun(datasetId, run)
         setRecords((current) => ({ ...current, [created.id]: created }))
         setReloadKey((n) => n + 1) // refresh the history and counts; the current view stays meanwhile
         return created

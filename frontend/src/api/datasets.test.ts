@@ -5,6 +5,7 @@ import {
   listAnalyses,
   listDatasets,
   runMetricsAnalysis,
+  runPerformanceAnalysis,
   runProfileAnalysis,
   runTrendsAnalysis,
   saveDataset,
@@ -118,6 +119,25 @@ describe('requests match the backend contract', () => {
     })
   })
 
+  it('sends the product and category columns with a performance analysis', async () => {
+    const record = { ...RECORD_BASE, kind: 'performance', result: { products: {}, categories: {} } }
+    const fetchMock = mockFetch(jsonResponse(record, 201))
+
+    await expect(runPerformanceAnalysis(7, { quantity: 'Qty' }, { productColumn: 'SKU', categoryColumn: 'Dept' })).resolves.toEqual(record)
+
+    expect(JSON.parse(sentRequest(fetchMock).init.body as string)).toEqual({
+      kind: 'performance',
+      column_mapping: { quantity: 'Qty', product: 'SKU', category: 'Dept' },
+    })
+  })
+
+  it('reads a recorded performance analysis from the history', async () => {
+    const record = { ...RECORD_BASE, kind: 'performance', result: { products: {}, categories: {} } }
+    mockFetch(jsonResponse(record))
+
+    await expect(getAnalysis(7, 3)).resolves.toEqual(record)
+  })
+
   it('reads a recorded trends analysis from the history', async () => {
     const record = { ...RECORD_BASE, kind: 'trends', grain: 'month', result: { periods: [], revenue: {} } }
     mockFetch(jsonResponse(record))
@@ -155,6 +175,8 @@ describe('errors and unexpected answers', () => {
     await expect(runProfileAnalysis(7)).rejects.toThrow('not InsightFlow data')
     mockFetch(jsonResponse({ ...RECORD_BASE, kind: 'metrics', result: {} }, 201))
     await expect(runTrendsAnalysis(7, {}, { grain: 'month', dateColumn: '' })).rejects.toThrow('not InsightFlow data')
+    mockFetch(jsonResponse({ ...RECORD_BASE, kind: 'trends', grain: 'month', result: {} }, 201))
+    await expect(runPerformanceAnalysis(7, {}, { productColumn: '', categoryColumn: '' })).rejects.toThrow('not InsightFlow data')
   })
 
   it('rejects a dataset list that is not InsightFlow data', async () => {

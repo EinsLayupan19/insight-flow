@@ -2,7 +2,7 @@
 
 An evidence-first retail analytics platform. Analysts will import retail data, validate its quality, analyze profitability, investigate business changes, and ask natural-language questions answered with verifiable SQL results.
 
-> **Current status: Phase 2 in progress — CSV ingestion and first analytics.** In the browser you can upload a CSV, see why it was rejected (if it was), review a read-only data-quality report, see the basic retail metrics its columns support, and follow **sales trends** (revenue, orders, and average order value by day, week, or month), all calculated with DuckDB. You choose per upload whether the file is **saved to the dataset library** (stored on the server's disk with its analysis history, until you delete it) or **analyzed in memory only** (nothing stored). Profit is intentionally not calculated yet (see [Known limitations](#known-limitations)).
+> **Current status: Phase 2 in progress — CSV ingestion and first analytics.** In the browser you can upload a CSV, see why it was rejected (if it was), review a read-only data-quality report, see the basic retail metrics its columns support, follow **sales trends** (revenue, orders, and average order value by day, week, or month), and rank **products and categories** by revenue, quantity, and orders, all calculated with DuckDB. You choose per upload whether the file is **saved to the dataset library** (stored on the server's disk with its analysis history, until you delete it) or **analyzed in memory only** (nothing stored). Profit is intentionally not calculated yet (see [Known limitations](#known-limitations)).
 
 ## Tech stack
 
@@ -87,12 +87,13 @@ Stop either server with `Ctrl + C`.
 5. **Review retail metrics.** Each metric card shows its value, the API's definition, the columns used, how many rows were included and excluded, and any notes. Metrics the file can't support are marked **Unavailable**, with the reason from the API.
 6. **Map columns (optional).** If your columns are named differently (for example `Qty` instead of `quantity`), open **Map columns**, pick a column for each role, and click **Apply mapping**. Each column can fill only one role. The mapping applies to the metrics and the sales trends. For a saved file, every mapping you apply is recorded as a new analysis.
 7. **Review sales trends.** A column chart of **Gross sales** (or **Revenue (as recorded)**), **Orders**, or **Average order value** per period, with every period in a table below it. Choose **Group by** Day, Week (Monday to Sunday), or Month (the default), and the **Date column** if yours is not named `order_date`. Hover a period, or focus the chart and use the arrow keys, to read its value. Periods with no rows are left empty, never drawn as zero, and rows without a usable date are counted with their line numbers. With many periods (for example two years of days), the chart switches from columns to a line.
-8. **Analyze another file** or **Clear results** to start over. The results on this page stay until then (also while you browse saved datasets), but disappear when the page is reloaded. Saved datasets are not affected by clearing.
-9. **Browse saved datasets.** Open **Saved datasets** in the header to see every saved file. Open one to see its details (rows, columns, stored-file status, SHA-256), its **analysis history** (newest first), and any recorded result exactly as it was stored. From there you can run a new data-quality check, calculate metrics or trends (with a different column mapping, grain, or date column if needed), or **delete the dataset**, which asks for confirmation first.
+8. **Rank products and categories.** A bar chart of the top 10 products (or categories, with the **Products / Categories** switch) by **Gross sales**, **Total quantity**, **Orders**, or **Rows**, each value printed at its bar, and every listed group in a table with its share of revenue, its rows, and the categories a product is filed under (or how many products a category holds). Choose the **Product column** and **Category column** if yours are not named `product` and `category`. A file without one of them shows that breakdown as unavailable, with the reason. Labels that differ only by case or spacing, and products filed under more than one category, are flagged, never merged.
+9. **Analyze another file** or **Clear results** to start over. The results on this page stay until then (also while you browse saved datasets), but disappear when the page is reloaded. Saved datasets are not affected by clearing.
+10. **Browse saved datasets.** Open **Saved datasets** in the header to see every saved file. Open one to see its details (rows, columns, stored-file status, SHA-256), its **analysis history** (newest first), and any recorded result exactly as it was stored. From there you can run a new data-quality check, calculate metrics or trends, rank products (with a different column mapping, grain, date, product, or category column if needed), or **delete the dataset**, which asks for confirmation first.
 
 **Duplicate uploads.** Saving a file whose content is already in the library (even under another name) does not store a second copy. The page says **Already in the dataset library**, names the existing dataset, and adds the new results to its history.
 
-Sample files to try are in `backend/tests/fixtures/`: `sample_sales.csv` (clean), `messy_sales.csv` (missing values, a duplicate row, `N/A`, an impossible date), `numeric_edge_cases.csv`, `order_lines.csv`, and `no_sales_columns.csv`.
+Sample files to try are in `backend/tests/fixtures/`: `sample_sales.csv` (clean), `messy_sales.csv` (missing values, a duplicate row, `N/A`, an impossible date), `numeric_edge_cases.csv`, `order_lines.csv`, `no_sales_columns.csv`, and `catalog_sales.csv` (products and categories, with a case variant, a padded label, a product in two categories, blank labels, and a refund).
 
 **Endpoints the UI calls** (through the Vite proxy, so the browser only talks to `localhost:5180`):
 
@@ -103,9 +104,10 @@ Sample files to try are in `backend/tests/fixtures/`: `sample_sales.csv` (clean)
 | Data quality | `POST /api/uploads/csv/profile` (uploads the file again) | `POST /api/datasets/{id}/analyses` with `{"kind": "profile"}` |
 | Retail metrics | `POST /api/uploads/csv/metrics`, plus `order_id_column`, `quantity_column`, `unit_price_column`, `revenue_column` only for roles you mapped | `POST /api/datasets/{id}/analyses` with `{"kind": "metrics", "column_mapping": {...}}` |
 | Sales trends | `POST /api/uploads/csv/trends`, plus `grain`, and `order_date_column` and the other `*_column` fields only for roles you chose | `POST /api/datasets/{id}/analyses` with `{"kind": "trends", "grain": "week", "column_mapping": {...}}` |
+| Products & categories | `POST /api/uploads/csv/performance`, plus `product_column`, `category_column`, and the other `*_column` fields only for roles you chose | `POST /api/datasets/{id}/analyses` with `{"kind": "performance", "column_mapping": {...}}` |
 | Saved datasets pages | — | `GET /api/datasets`, `GET /api/datasets/{id}`, `GET /api/datasets/{id}/analyses`, `GET /api/datasets/{id}/analyses/{analysis_id}`, `DELETE /api/datasets/{id}` |
 
-Data quality, retail metrics, and sales trends run in parallel after validation succeeds, and each can fail and be retried on its own. Changing the grain or the date column re-runs only the trends.
+Data quality, retail metrics, sales trends, and product & category performance run in parallel after validation succeeds, and each can fail and be retried on its own. Changing the grain or the date column re-runs only the trends; changing the product or category column re-runs only the rankings.
 
 ## Saved datasets: what is stored, and where
 
@@ -135,6 +137,7 @@ python -m app.storage.database
 | --- | --- |
 | `0001_create_datasets_and_analyses.sql` | Creates `datasets` and `analyses` (kinds `profile` and `metrics`). |
 | `0002_allow_trends_analyses.sql` | Allows the analysis kind `trends`. SQLite can't change a `CHECK` constraint in place, so the `analyses` table is rebuilt: every row is copied with its id, the id counter is carried over (ids of deleted analyses are still never reused), and the index is recreated. Existing profile and metrics history is unchanged and stays readable. |
+| `0003_allow_performance_analyses.sql` | Allows the analysis kind `performance`, with the same rebuild steps as 0002. Tested on a version-2 library holding profile, metrics, and trends history: every record stays readable and unchanged, and the id counter carries over. |
 
 An existing library is upgraded automatically the next time the backend opens it.
 
@@ -244,6 +247,45 @@ curl.exe -F "file=@my_sales.csv" -F "grain=week" -F "order_date_column=Day" -F "
 curl.exe -F "file=@tests/fixtures/messy_sales.csv" -F "grain=day" http://127.0.0.1:8000/api/uploads/csv/trends
 ```
 
+### Product & category performance (DuckDB)
+
+`POST /api/uploads/csv/performance` accepts the same upload, follows the same status-code rules, and breaks the rows down by product and by category. It uses the metrics' rules (same column matching, same per-row revenue, same number rule) plus two label columns.
+
+| Form field | Default | Meaning |
+| --- | --- | --- |
+| `product_column` | a column named exactly `product` | The column that names each row's product. |
+| `category_column` | a column named exactly `category` | The column that names each row's category. |
+| `order_id_column`, `quantity_column`, `unit_price_column`, `revenue_column` | exact names, as for the metrics | Same roles as the metrics. Each column can fill only one role (422 otherwise). |
+
+The response has a `products` and a `categories` breakdown. Each lists its groups, highest first, with:
+
+| Field | Per group |
+| --- | --- |
+| `revenue` | Sum of the same per-row value `total_revenue` uses (gross sales, or revenue as recorded). |
+| `revenue_share` | That revenue as a percentage of the breakdown's total, rounded to 2 decimals. Empty when the total is zero or negative. |
+| `quantity` | Sum of the quantity column. |
+| `order_count` | Distinct order IDs among the group's rows. An order with several products counts under each, and this is flagged. |
+| `row_count` | Rows with this label. |
+| `categories` (products) | The categories the product's rows are filed under. |
+| `product_count` (categories) | Distinct products among the category's rows. |
+| `similar_labels` | Other labels that differ from this one only by letter case or spacing. |
+
+**Labels.** A label is the cell's exact text after trimming surrounding spaces, so `" Oat Milk "` and `"Oat Milk"` are one product. Blank labels are excluded and counted with line numbers. `Green Tea`, `green tea`, and `Green  Tea` stay **separate** groups and are flagged in `notes`, never merged. Products filed under more than one category are flagged too. Nothing is guessed: `Product` or `SKU` are only used when you choose them.
+
+**Ranking.** By revenue; by quantity when revenue is unavailable; by row count when both are. Groups without a usable value come last, and ties are broken by label in code point order, so the same file always gives the same ranking (`ranked_by` says which measure was used).
+
+**At most 1,000 groups are listed.** When there are more, `remaining` sums the rest (group count, rows, revenue, quantity, and distinct orders), so the listed groups plus `remaining` always add up to the totals. In the browser, a capped breakdown can only be ranked the way the API ranked it, because re-ranking the listed groups could miss the real top ones.
+
+**Missing columns.** Without a `product` (or `category`) column, that breakdown is `unavailable` with the reason in `notes`; the other still works. A measure whose column is missing (for example no `order_id`) is unavailable on its own. Profit is not calculated (see [Known limitations](#known-limitations)).
+
+```powershell
+# Products and categories for the catalog fixture
+curl.exe -F "file=@tests/fixtures/catalog_sales.csv" http://127.0.0.1:8000/api/uploads/csv/performance
+
+# Your own column names
+curl.exe -F "file=@my_sales.csv" -F "product_column=SKU" -F "category_column=Department" http://127.0.0.1:8000/api/uploads/csv/performance
+```
+
 ### Dataset library endpoints
 
 These keep the file (see [Saved datasets: what is stored, and where](#saved-datasets-what-is-stored-and-where)). The in-memory endpoints above never store anything.
@@ -255,17 +297,18 @@ These keep the file (see [Saved datasets: what is stored, and where](#saved-data
 | `GET /api/datasets/{id}` | 200: details, column names, `file_stored` | 404 |
 | `DELETE /api/datasets/{id}` | 204: stored file, metadata, and history removed | 404 |
 | `GET /api/datasets/{id}/analyses` | 200 `{"analyses": [...]}`, newest first, each with headline numbers (`highlights`) | 404 |
-| `POST /api/datasets/{id}/analyses` with JSON `{"kind": "profile"}`, `{"kind": "metrics", "column_mapping": {"quantity": "Qty"}}`, or `{"kind": "trends", "grain": "week", "column_mapping": {"order_date": "Day"}}` | 201: the recorded analysis with its full `result` (trends records also carry their `grain`, which defaults to `month`) | 404; 409 stored file missing or changed; 422 invalid kind, grain, or mapping, `grain` on a non-trends kind, or `order_date` in a metrics mapping (nothing is recorded) |
+| `POST /api/datasets/{id}/analyses` with JSON `{"kind": "profile"}`, `{"kind": "metrics", "column_mapping": {"quantity": "Qty"}}`, `{"kind": "trends", "grain": "week", "column_mapping": {"order_date": "Day"}}`, or `{"kind": "performance", "column_mapping": {"product": "SKU"}}` | 201: the recorded analysis with its full `result` (trends records also carry their `grain`, which defaults to `month`) | 404; 409 stored file missing or changed; 422 invalid kind, grain, or mapping, `grain` on a non-trends kind, `order_date` outside trends, or `product`/`category` outside performance (nothing is recorded) |
 | `GET /api/datasets/{id}/analyses/{analysis_id}` | 200: one recorded analysis, exactly as stored | 404 (also when the analysis belongs to another dataset) |
 
 ```powershell
 # Save a file (run it twice: the second answer is 200 with "created": false)
 curl.exe -F "file=@tests/fixtures/messy_sales.csv" http://127.0.0.1:8000/api/datasets
 
-# Record a data-quality check, a metrics calculation, and weekly trends for dataset 1
+# Record a data-quality check, a metrics calculation, weekly trends, and product rankings for dataset 1
 curl.exe -X POST -H "Content-Type: application/json" -d '{\"kind\": \"profile\"}' http://127.0.0.1:8000/api/datasets/1/analyses
 curl.exe -X POST -H "Content-Type: application/json" -d '{\"kind\": \"metrics\"}' http://127.0.0.1:8000/api/datasets/1/analyses
 curl.exe -X POST -H "Content-Type: application/json" -d '{\"kind\": \"trends\", \"grain\": \"week\"}' http://127.0.0.1:8000/api/datasets/1/analyses
+curl.exe -X POST -H "Content-Type: application/json" -d '{\"kind\": \"performance\"}' http://127.0.0.1:8000/api/datasets/1/analyses
 
 # Read the history, then delete the dataset (file, metadata, and history)
 curl.exe http://127.0.0.1:8000/api/datasets/1/analyses
@@ -289,14 +332,14 @@ npm run build
 cd ..
 ```
 
-The backend tests use a temporary data directory, so they never touch `backend/data/`. They cover the migrations (fresh database, re-runs, rollback of a failed migration, concurrent first use, and upgrading a schema-version-1 library with real profile and metrics history to version 2 without losing or changing it), the sales trends (daily, weekly, and monthly grouping, the date rule checked against the data-quality check's, invalid and mixed dates, gaps, negative revenue, overflow, mappings), the file store (hash-named files, integrity checks, path safety), the dataset rules (duplicates, rejected files, history, deletion, a missing stored file), and every dataset endpoint, plus a check that the in-memory endpoints never write anything.
+The backend tests use a temporary data directory, so they never touch `backend/data/`. They cover the migrations (fresh database, re-runs, rollback of a failed migration, concurrent first use, and upgrading real version-1 and version-2 libraries, with their profile, metrics, and trends history, without losing or changing anything), the product and category rankings (trimming, blank labels, case and spacing variants, products in several categories, ranking and ties, shares, missing columns, the 1,000-group cap and its summary, overflow, mappings), the sales trends (daily, weekly, and monthly grouping, the date rule checked against the data-quality check's, invalid and mixed dates, gaps, negative revenue, overflow, mappings), the file store (hash-named files, integrity checks, path safety), the dataset rules (duplicates, rejected files, history, deletion, a missing stored file), and every dataset endpoint, plus a check that the in-memory endpoints never write anything.
 
-The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs, form fields, JSON bodies, status codes, error messages), page routing, column-mapping rules, file checks, number and date formatting, history descriptions, metric labels, and the sales-trend helpers (period labels without time-zone shifts, the table's empty and unusable periods, chart scale, column geometry, and the screen-reader summary). They run in Node and don't need the backend.
+The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs, form fields, JSON bodies, status codes, error messages), page routing, column-mapping rules, file checks, number and date formatting, history descriptions, metric labels, and the sales-trend helpers (period labels without time-zone shifts, the table's empty and unusable periods, chart scale, column geometry, and the screen-reader summary), and the product and category helpers (ranking with the backend's tie-break, the ranking choices for capped breakdowns, labels, shares, and the bar chart's scale). They run in Node and don't need the backend.
 
 ## Known limitations
 
 - **Storage is local and single-user.** Saved files and the database live on the machine running the backend. There are no user accounts, no backups, no sync, and no storage quota or pagination (fine for a personal library, not for a shared server).
-- **In-memory analysis uploads the file 4 times** (once per step, and again whenever the trends' grain or date column changes), and its results disappear when the page is reloaded. Saved datasets upload once and keep their results.
+- **In-memory analysis uploads the file 5 times** (once per step, and again whenever the trends' grain or date column, or the product or category column, changes), and its results disappear when the page is reloaded. Saved datasets upload once and keep their results.
 - **Recorded results are not recalculated.** A history entry keeps the result its InsightFlow version produced. If the rules change in a later version, re-run the analysis to get a new entry.
 - **Datasets can't be renamed or replaced.** To change a saved file, save the new version (a different content hash creates a new dataset) and delete the old one.
 - **OneDrive and synced folders.** If the project folder is synced (for example by OneDrive), the database and stored files are synced too. To avoid sync conflicts, set `DATA_DIR` to a folder outside it.
@@ -306,7 +349,8 @@ The frontend tests (Vitest) cover the API clients against a mocked `fetch` (URLs
 - **CSV format.** Only comma-separated, UTF-8 files with a header row. Dates must be `YYYY-MM-DD` to count as dates.
 - **Column mapping can't switch a role off.** A column named exactly like a role (for example `revenue`) is always used for that role.
 - **Trends only read `YYYY-MM-DD` dates.** Timestamps (`2026-01-05 10:00`) and other formats are excluded and counted, not converted, so there is no time-zone handling. Weeks are ISO weeks (Monday to Sunday); fiscal calendars are not supported. At most 2,000 periods are returned.
-- **Trends follow the metrics' column mapping on the Analyze page.** The grain and the date column are chosen in the Sales trends section; the other roles come from **Map columns** in Retail metrics. In library mode, every change records a new trends analysis.
+- **Product and category labels are compared as exact text.** Variants are flagged but never merged, so `Green Tea` and `green tea` are ranked separately until the file is fixed. There is no product hierarchy (subcategories) and no per-product average price or margin. At most 1,000 groups are listed per breakdown.
+- **Trends and rankings follow the metrics' column mapping on the Analyze page.** The grain and the date column are chosen in the Sales trends section; the other roles come from **Map columns** in Retail metrics. The product and category columns are chosen in their own section. In library mode, every change records a new analysis, and each upload records four.
 - **Large files take a few seconds.** For a file near 10 MB, the data-quality and metrics steps each took about 4 seconds on the development laptop.
 
 ## Troubleshooting

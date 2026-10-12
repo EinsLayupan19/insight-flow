@@ -33,6 +33,7 @@ def test_opening_again_does_not_reapply_migrations(tmp_path: Path) -> None:
     assert [(row["version"], row["name"]) for row in rows] == [
         (1, "create_datasets_and_analyses"),
         (2, "allow_trends_analyses"),
+        (3, "allow_performance_analyses"),
     ]
     connection.close()
 

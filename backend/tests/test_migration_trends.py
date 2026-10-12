@@ -15,7 +15,7 @@ from app.datasets.models import AnalysisRequest, MetricsAnalysis, ProfileAnalysi
 from app.datasets.service import DatasetService
 from app.ingestion.csv_parser import parse_csv
 from app.ingestion.profiler import profile_csv
-from app.storage.database import MIGRATIONS_DIR, database_path, open_database, schema_version
+from app.storage.database import MIGRATIONS_DIR, database_path, load_migrations, open_database, schema_version
 from app.storage.file_store import FileStore, sha256_of
 from app.storage.repository import DatasetRepository
 
@@ -98,7 +98,8 @@ def test_upgrading_keeps_profile_and_metrics_history_readable(data_dir: Path, ve
     assert metrics.column_mapping == {"quantity": "quantity"}
     assert service.get_dataset(dataset_id).analysis_count == 2
     with sqlite3.connect(database_path(data_dir)) as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 2
+        # Upgraded all the way to the newest migration, whichever that is.
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == len(load_migrations())
 
 
 def test_upgraded_database_records_trends_next_to_the_old_history(data_dir: Path, version_1_library: dict) -> None:

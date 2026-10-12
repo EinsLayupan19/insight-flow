@@ -19,6 +19,7 @@ import duckdb
 from pydantic import BaseModel
 
 from app.analytics.duckdb_loader import LINE_COLUMN, TABLE, LoadedTable, load_into_duckdb
+from app.analytics.evidence import lines_suffix
 from app.ingestion.csv_parser import ParsedCsv
 
 Role = Literal["order_id", "quantity", "unit_price", "revenue"]
@@ -29,7 +30,6 @@ R = TypeVar("R", bound=str)
 # No currency symbols, thousands separators, or scientific notation.
 NUMBER_PATTERN = r"[+-]?(?:[0-9]+(?:\.[0-9]{0,8})?|\.[0-9]{1,8})"
 DECIMAL_TYPE = "DECIMAL(38, 8)"  # exact decimal math (0.1 + 0.2 == 0.3), unlike floating point
-MAX_LINE_EXAMPLES = 5
 
 NUMBER_RULE = (
     "A usable number is plain text like 42, -3, or 18.50: an optional sign, digits, and at most "
@@ -130,7 +130,7 @@ def _total_quantity(table: LoadedTable, columns: dict[Role, str | None]) -> Metr
     quantity = columns["quantity"]
     if quantity is None:
         return _unavailable(definition, "No column named 'quantity'. To use another column, send quantity_column.")
-    return _sum_metric(table, _number_sql(table, quantity), [quantity], definition)
+    return _sum_metric(table, number_sql(table, quantity), [quantity], definition)
 
 
 @dataclass(frozen=True)
@@ -271,12 +271,12 @@ def revenue_value_sql(table: LoadedTable, columns: Mapping[str, str | None]) -> 
     """Per-row revenue: the revenue column if present, otherwise quantity x unit_price."""
     revenue, quantity, unit_price = columns["revenue"], columns["quantity"], columns["unit_price"]
     if revenue is not None:
-        return _number_sql(table, revenue)
+        return number_sql(table, revenue)
     assert quantity is not None and unit_price is not None  # callers check availability first
-    return f"({_number_sql(table, quantity)}) * ({_number_sql(table, unit_price)})"
+    return f"({number_sql(table, quantity)}) * ({number_sql(table, unit_price)})"
 
 
-def _number_sql(table: LoadedTable, column_name: str) -> str:
+def number_sql(table: LoadedTable, column_name: str) -> str:
     """SQL that turns a text column into an exact decimal, or NULL if it isn't a usable number."""
     c = table.identifier(column_name)
     return f"CASE WHEN regexp_full_match(trim({c}), $number_pattern) THEN TRY_CAST(trim({c}) AS {DECIMAL_TYPE}) END"
@@ -284,11 +284,8 @@ def _number_sql(table: LoadedTable, column_name: str) -> str:
 
 def _lines_suffix(table: LoadedTable, condition_sql: str, total: int) -> str:
     """Return ' (lines 4, 7, ...)' listing the first rows that match a condition, as evidence."""
-    sql = f"SELECT {LINE_COLUMN} FROM {TABLE} WHERE {condition_sql} ORDER BY {LINE_COLUMN} LIMIT {MAX_LINE_EXAMPLES}"
-    params = {"number_pattern": NUMBER_PATTERN} if "$number_pattern" in sql else {}
-    lines = [str(row[0]) for row in table.connection.execute(sql, params).fetchall()]
-    more = ", ..." if total > len(lines) else ""
-    return f" (lines {', '.join(lines)}{more})" if lines else ""
+    params = {"number_pattern": NUMBER_PATTERN} if "$number_pattern" in condition_sql else {}
+    return lines_suffix(table.connection, TABLE, condition_sql, total, params, LINE_COLUMN)
 
 
 def _unavailable(definition: str, reason: str, columns_used: list[str] | None = None) -> MetricResult:

@@ -25,6 +25,7 @@ import duckdb
 from pydantic import BaseModel
 
 from app.analytics.duckdb_loader import LINE_COLUMN, TABLE, LoadedTable, load_into_duckdb
+from app.analytics.evidence import lines_suffix
 from app.analytics.retail_metrics import (
     NUMBER_PATTERN,
     NUMBER_RULE,
@@ -50,7 +51,6 @@ TREND_ROLES: tuple[TrendRole, ...] = ("order_date", *ROLES)
 # Enough for about 5 years of daily periods. A wider range usually means a mistyped
 # year, and the response stays small enough to chart and read.
 MAX_PERIODS = 2000
-MAX_LINE_EXAMPLES = 5
 ROWS = "trend_rows"  # working table: one row per uploaded row, with its date, period, revenue, and order ID
 
 DATE_RULE = (
@@ -405,10 +405,7 @@ class _Calculation:
 
     def _lines(self, condition: str, total: int) -> str:
         """' (lines 4, 7, ...)': the first rows matching a condition, as evidence."""
-        rows = self._sql(f"SELECT line FROM {ROWS} WHERE {condition} ORDER BY line LIMIT {MAX_LINE_EXAMPLES}")
-        lines = [str(row[0]) for row in rows]
-        more = ", ..." if total > len(lines) else ""
-        return f" (lines {', '.join(lines)}{more})" if lines else ""
+        return lines_suffix(self.table.connection, ROWS, condition, total)
 
 
 

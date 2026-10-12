@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 
 from app.analytics.retail_metrics import ColumnMappingError
+from app.analytics.product_performance import calculate_product_performance, resolve_performance_columns
 from app.analytics.sales_trends import calculate_sales_trends, resolve_trend_columns
-from app.datasets.models import AnalysisRequest, MetricsAnalysis, ProfileAnalysis, TrendsAnalysis
+from app.datasets.models import AnalysisRequest, MetricsAnalysis, PerformanceAnalysis, ProfileAnalysis, TrendsAnalysis
 from app.datasets.service import DatasetNotFoundError, DatasetService, display_name
 from app.ingestion.csv_parser import CsvValidationError, parse_csv
 from app.ingestion.profiler import profile_csv
@@ -113,6 +114,31 @@ def test_trends_requests_default_to_months_and_reject_options_of_other_kinds() -
         AnalysisRequest(kind="metrics", grain="day")
     with pytest.raises(ValueError, match="'order_date' only applies to kind 'trends'"):
         AnalysisRequest(kind="metrics", column_mapping={"order_date": "Day"})
+
+
+def test_performance_analysis_is_recorded_with_the_same_result_as_live_performance(service: DatasetService) -> None:
+    catalog = (FIXTURES / "catalog_sales.csv").read_bytes()
+    dataset_id = service.save_dataset("catalog_sales.csv", catalog).dataset.id
+    parsed = parse_csv(catalog)
+
+    record = service.run_analysis(dataset_id, AnalysisRequest(kind="performance"))
+
+    assert isinstance(record, PerformanceAnalysis)
+    assert record.result == calculate_product_performance(parsed, resolve_performance_columns(parsed.columns, {}))
+    assert service.get_analysis(dataset_id, record.id) == record
+    assert service.list_analyses(dataset_id)[0].highlights.model_dump() == {"product_count": 5, "category_count": 3}
+
+
+def test_product_and_category_roles_only_apply_to_performance() -> None:
+    assert AnalysisRequest(kind="performance", column_mapping={"product": "SKU", "category": "Dept"}).grain is None
+    with pytest.raises(ValueError, match="'product' only applies to kind 'performance'"):
+        AnalysisRequest(kind="metrics", column_mapping={"product": "SKU"})
+    with pytest.raises(ValueError, match="'category' only applies to kind 'performance'"):
+        AnalysisRequest(kind="trends", column_mapping={"category": "Dept"})
+    with pytest.raises(ValueError, match="'order_date' only applies to kind 'trends'"):
+        AnalysisRequest(kind="performance", column_mapping={"order_date": "Day"})
+    with pytest.raises(ValueError, match="grain only applies to kind 'trends'"):
+        AnalysisRequest(kind="performance", grain="day")
 
 
 def test_an_invalid_mapping_records_nothing(service: DatasetService) -> None:

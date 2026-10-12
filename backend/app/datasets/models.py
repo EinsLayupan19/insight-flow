@@ -5,12 +5,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.analytics.product_performance import ProductPerformance
 from app.analytics.retail_metrics import RetailMetrics
-from app.analytics.sales_trends import DEFAULT_GRAIN, Grain, SalesTrends, TrendRole
+from app.analytics.sales_trends import DEFAULT_GRAIN, Grain, SalesTrends
 from app.ingestion.profiler import QualityReport
 
-AnalysisKind = Literal["profile", "metrics", "trends"]
-MappingRole = TrendRole  # every role a column can be mapped to; order_date is for trends only
+AnalysisKind = Literal["profile", "metrics", "trends", "performance"]
+# Every role a column can be mapped to. Some apply to one kind only (see KIND_ONLY_ROLES).
+MappingRole = Literal["order_date", "product", "category", "order_id", "quantity", "unit_price", "revenue"]
+KIND_ONLY_ROLES: dict[str, AnalysisKind] = {"order_date": "trends", "product": "performance", "category": "performance"}
 
 
 class DatasetSummary(BaseModel):
@@ -48,8 +51,9 @@ class AnalysisRequest(BaseModel):
     column_mapping: dict[MappingRole, str] = Field(
         default_factory=dict,
         description=(
-            "Metrics and trends only: the column to use for each role. Roles left out use a column with "
-            "exactly that name. The order_date role applies to trends only."
+            "Metrics, trends, and performance only: the column to use for each role. Roles left out use a "
+            "column with exactly that name. order_date applies to trends only; product and category to "
+            "performance only."
         ),
     )
     grain: Grain | None = Field(
@@ -66,9 +70,10 @@ class AnalysisRequest(BaseModel):
     @model_validator(mode="after")
     def _options_match_the_kind(self) -> "AnalysisRequest":
         if self.kind == "profile" and self.column_mapping:
-            raise ValueError("column_mapping only applies to kinds 'metrics' and 'trends'.")
-        if self.kind != "trends" and "order_date" in self.column_mapping:
-            raise ValueError("The column_mapping role 'order_date' only applies to kind 'trends'.")
+            raise ValueError("column_mapping only applies to kinds 'metrics', 'trends', and 'performance'.")
+        for role, kind in KIND_ONLY_ROLES.items():
+            if role in self.column_mapping and self.kind != kind:
+                raise ValueError(f"The column_mapping role '{role}' only applies to kind '{kind}'.")
         if self.kind != "trends" and self.grain is not None:
             raise ValueError("grain only applies to kind 'trends'.")
         if self.kind == "trends" and self.grain is None:
@@ -94,6 +99,11 @@ class TrendsHighlights(BaseModel):
     unavailable_count: int
 
 
+class PerformanceHighlights(BaseModel):
+    product_count: int | None  # None when the product breakdown is unavailable
+    category_count: int | None
+
+
 class _AnalysisBase(BaseModel):
     id: int
     dataset_id: int
@@ -106,7 +116,7 @@ class AnalysisSummary(_AnalysisBase):
     """One history entry, with a few headline numbers instead of the full result."""
 
     kind: AnalysisKind
-    highlights: TrendsHighlights | MetricsHighlights | ProfileHighlights
+    highlights: PerformanceHighlights | TrendsHighlights | MetricsHighlights | ProfileHighlights
 
 
 class AnalysisList(BaseModel):
@@ -129,4 +139,11 @@ class TrendsAnalysis(_AnalysisBase):
     result: SalesTrends
 
 
-AnalysisRecord = Annotated[ProfileAnalysis | MetricsAnalysis | TrendsAnalysis, Field(discriminator="kind")]
+class PerformanceAnalysis(_AnalysisBase):
+    kind: Literal["performance"]
+    result: ProductPerformance
+
+
+AnalysisRecord = Annotated[
+    ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis, Field(discriminator="kind")
+]

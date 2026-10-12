@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { runMetricsAnalysis, runProfileAnalysis, runTrendsAnalysis, saveDataset, type SaveDatasetResponse } from '../api/datasets'
+import {
+  runMetricsAnalysis,
+  runPerformanceAnalysis,
+  runProfileAnalysis,
+  runTrendsAnalysis,
+  saveDataset,
+  type SaveDatasetResponse,
+} from '../api/datasets'
 import {
   calculateMetrics,
+  calculatePerformance,
   calculateTrends,
   profileCsv,
   validateCsv,
+  type ProductPerformance,
   type QualityReport,
   type RetailMetrics,
   type SalesTrends,
 } from '../api/uploads'
 import type { ColumnMapping } from '../lib/columnMapping'
+import { DEFAULT_PERFORMANCE_OPTIONS, type PerformanceOptions } from '../lib/performance'
 import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
 import { userMessage } from '../lib/errors'
 import { EMPTY_SELECTION, selectCsvFile, type FileSelection } from '../lib/files'
@@ -46,10 +56,16 @@ export type Analysis = {
   trendsRequest: TrendsRequest
   /** Grain and date column behind the trends currently shown. */
   appliedTrendOptions: TrendOptions
+  performance: RequestState<ProductPerformance>
+  /** Inputs of the latest performance request (used by "Try again" and when a label column changes). */
+  performanceRequest: PerformanceRequest
 }
 
 /** Trends share the metrics' column choices and add a grain and a date column. */
 type TrendsRequest = { mapping: ColumnMapping; options: TrendOptions }
+
+/** Product and category performance shares the metrics' column choices and adds the label columns. */
+type PerformanceRequest = { mapping: ColumnMapping; options: PerformanceOptions }
 
 /** Where results come from: the saved dataset (recorded in its history), or the file itself (not stored). */
 type Source = { file: File; datasetId: number | null }
@@ -81,20 +97,29 @@ async function fetchTrends(source: Source, request: TrendsRequest, signal: Abort
   return (await calculateTrends(source.file, request.mapping, request.options, signal)).trends
 }
 
+async function fetchPerformance(source: Source, request: PerformanceRequest, signal: AbortSignal): Promise<ProductPerformance> {
+  if (source.datasetId !== null) {
+    return (await runPerformanceAnalysis(source.datasetId, request.mapping, request.options, signal)).result
+  }
+  return (await calculatePerformance(source.file, request.mapping, request.options, signal)).performance
+}
+
 export function useCsvAnalysis() {
   const [selection, setSelection] = useState<FileSelection>(EMPTY_SELECTION)
   const [saveToLibrary, setSaveToLibrary] = useState(true)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
-  // One controller for validate + profile, and one each for metrics and trends, which can re-run on their own.
+  // One controller for validate + profile, and one each for metrics, trends, and performance, which can re-run on their own.
   const runController = useRef<AbortController | null>(null)
   const metricsController = useRef<AbortController | null>(null)
   const trendsController = useRef<AbortController | null>(null)
+  const performanceController = useRef<AbortController | null>(null)
   const nextId = useRef(1)
 
   const abortAll = useCallback(() => {
     runController.current?.abort()
     metricsController.current?.abort()
     trendsController.current?.abort()
+    performanceController.current?.abort()
   }, [])
 
   useEffect(() => abortAll, [abortAll]) // cancel in-flight requests if the app unmounts
@@ -155,6 +180,24 @@ export function useCsvAnalysis() {
     [update],
   )
 
+  const runPerformance = useCallback(
+    async (id: number, source: Source, request: PerformanceRequest) => {
+      performanceController.current?.abort() // a newer request replaces one still running
+      const controller = new AbortController()
+      performanceController.current = controller
+      update(id, (a) => ({ ...a, performanceRequest: request, performance: loadingFrom(a.performance) }))
+      try {
+        const data = await fetchPerformance(source, request, controller.signal)
+        update(id, (a) => ({ ...a, performance: { status: 'success', data } }))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const message = userMessage(error)
+        update(id, (a) => ({ ...a, performance: failedFrom(a.performance, message) }))
+      }
+    },
+    [update],
+  )
+
   const analyze = useCallback(
     async (file: File, mode: StorageMode) => {
       abortAll()
@@ -174,6 +217,8 @@ export function useCsvAnalysis() {
         trends: { status: 'idle' },
         trendsRequest: { mapping: {}, options: DEFAULT_TREND_OPTIONS },
         appliedTrendOptions: DEFAULT_TREND_OPTIONS,
+        performance: { status: 'idle' },
+        performanceRequest: { mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS },
       })
 
       let source: Source
@@ -192,8 +237,9 @@ export function useCsvAnalysis() {
       void runProfile(id, source, controller.signal)
       void runMetrics(id, source, {})
       void runTrends(id, source, { mapping: {}, options: DEFAULT_TREND_OPTIONS })
+      void runPerformance(id, source, { mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS })
     },
-    [abortAll, update, runProfile, runMetrics, runTrends],
+    [abortAll, update, runProfile, runMetrics, runTrends, runPerformance],
   )
 
   const selectFiles = useCallback((files: readonly File[]) => setSelection(selectCsvFile(files)), [])
@@ -222,14 +268,27 @@ export function useCsvAnalysis() {
     if (analysis) void runTrends(analysis.id, sourceOf(analysis), analysis.trendsRequest)
   }, [analysis, runTrends])
 
-  /** New column choices apply to the metrics and to the trends. */
+  const retryPerformance = useCallback(() => {
+    if (analysis) void runPerformance(analysis.id, sourceOf(analysis), analysis.performanceRequest)
+  }, [analysis, runPerformance])
+
+  /** New column choices apply to the metrics, the trends, and the product and category rankings. */
   const applyMapping = useCallback(
     (mapping: ColumnMapping) => {
       if (!analysis) return
       void runMetrics(analysis.id, sourceOf(analysis), mapping)
       void runTrends(analysis.id, sourceOf(analysis), { mapping, options: analysis.trendsRequest.options })
+      void runPerformance(analysis.id, sourceOf(analysis), { mapping, options: analysis.performanceRequest.options })
     },
-    [analysis, runMetrics, runTrends],
+    [analysis, runMetrics, runTrends, runPerformance],
+  )
+
+  /** A different product or category column re-runs the rankings only. */
+  const changePerformanceOptions = useCallback(
+    (options: PerformanceOptions) => {
+      if (analysis) void runPerformance(analysis.id, sourceOf(analysis), { mapping: analysis.performanceRequest.mapping, options })
+    },
+    [analysis, runPerformance],
   )
 
   /** A different grain or date column re-runs the trends only. */
@@ -258,8 +317,10 @@ export function useCsvAnalysis() {
     retryProfile,
     retryMetrics,
     retryTrends,
+    retryPerformance,
     applyMapping,
     changeTrendOptions,
+    changePerformanceOptions,
     clearResults,
   }
 }

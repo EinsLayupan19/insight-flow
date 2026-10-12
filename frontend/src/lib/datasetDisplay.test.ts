@@ -47,6 +47,21 @@ describe('describeHighlights for trends', () => {
   })
 })
 
+describe('describeHighlights for performance', () => {
+  it('names how many products and categories were found, or which breakdown is unavailable', () => {
+    const performance = (product_count: number | null, category_count: number | null): AnalysisSummary => ({
+      ...base,
+      id: 4,
+      kind: 'performance',
+      highlights: { product_count, category_count },
+    })
+
+    expect(describeHighlights(performance(48, 6))).toBe('48 products · 6 categories')
+    expect(describeHighlights(performance(1, null))).toBe('1 product · categories unavailable')
+    expect(describeHighlights(performance(null, null))).toBe('Products and categories unavailable')
+  })
+})
+
 describe('describeMapping', () => {
   it('lists explicit choices in role order', () => {
     expect(describeMapping({ unit_price: 'Price', quantity: 'Qty' })).toBe('Quantity → Qty, Unit price → Price')
@@ -54,6 +69,12 @@ describe('describeMapping', () => {
 
   it('lists a chosen date column first', () => {
     expect(describeMapping({ quantity: 'Qty', order_date: 'Day' })).toBe('Order date → Day, Quantity → Qty')
+  })
+
+  it('lists chosen product and category columns first', () => {
+    expect(describeMapping({ revenue: 'Amount', category: 'Dept', product: 'SKU' })).toBe(
+      'Product → SKU, Category → Dept, Revenue → Amount',
+    )
   })
 
   it('names automatic matching when nothing was chosen', () => {

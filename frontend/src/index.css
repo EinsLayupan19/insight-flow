@@ -1376,12 +1376,12 @@ a.button-ghost {
   color: var(--gray-600);
 }
 
-.trend-evidence {
+.measure-evidence {
   display: grid;
   gap: 8px;
 }
 
-.trend-evidence .metric-footer {
+.measure-evidence .metric-footer {
   margin-top: 0;
 }
 
@@ -1439,9 +1439,111 @@ a.button-ghost {
 
 @media (prefers-reduced-motion: reduce) {
   .trends-body,
-  .metrics-body {
+  .metrics-body,
+  .performance-body {
     transition: none;
   }
+}
+
+/* ---------- Product & category performance ---------- */
+
+.performance-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr); /* lets the wide table scroll instead of widening the page */
+  gap: 14px;
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.performance-body.is-stale {
+  opacity: 0.5;
+}
+
+.performance-breakdown {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.rank-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.segment-note {
+  font-weight: 400;
+  color: var(--gray-500);
+}
+
+.performance-chart {
+  min-width: 0;
+}
+
+.performance-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.performance-bar-label {
+  fill: var(--gray-700);
+  font-size: 12px;
+}
+
+.performance-bar-value {
+  fill: var(--navy-900);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.performance-bar-value.is-missing {
+  fill: var(--gray-500);
+  font-weight: 400;
+}
+
+.performance-table {
+  min-width: 640px;
+}
+
+/* Labels are shown exactly as compared: keep runs of spaces visible ("Ceramic  Mug"). */
+.group-label,
+.label-flag,
+.performance-breakdown .metric-notes span {
+  white-space: pre-wrap;
+}
+
+.group-label {
+  overflow-wrap: anywhere;
+}
+
+/* A flagged label: an icon and text, never color alone. */
+.label-flag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--gray-600);
+}
+
+.label-flag-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.performance-table tfoot th,
+.performance-table tfoot td {
+  border-top: 1px solid var(--gray-200);
+  background: var(--gray-25);
+  font-weight: 600;
+}
+
+.table-note {
+  margin-top: 6px;
 }
 
 /* ---------- Dataset library ---------- */

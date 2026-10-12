@@ -1,0 +1,10 @@
+order_id,order_date,product,category,quantity,unit_price
+A1,2026-01-05,Coffee Beans,Beverages,2,18.50
+A1,2026-01-05,Ceramic Mug,Homeware,1,12.00
+A2,2026-01-06,Green Tea,Beverages,5,4.25
+A3,2026-01-06,green tea,Beverages,1,4.25
+A4,2026-01-07, Oat Milk ,Dairy,4,3.80
+A5,2026-01-07,Oat Milk,Beverages,2,3.80
+A6,2026-01-08,,Homeware,1,9.99
+A7,2026-01-08,Ceramic Mug,,2,12.00
+R1,2026-01-09,Coffee Beans,Beverages,-1,18.50

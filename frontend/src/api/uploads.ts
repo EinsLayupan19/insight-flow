@@ -4,6 +4,7 @@
 // every analysis step uploads the file again.
 
 import { mappingFormFields, type ColumnMapping, type MetricRole } from '../lib/columnMapping'
+import { performanceFormFields, type PerformanceOptions } from '../lib/performance'
 import { trendFormFields, type TrendOptions } from '../lib/trends'
 import { isObject, requestJson } from './http'
 
@@ -94,6 +95,60 @@ export type SalesTrends = {
 
 export type CsvTrendsResponse = { filename: string; size_bytes: number; trends: SalesTrends }
 
+export type PerformanceGroup = {
+  label: string
+  row_count: number
+  /** null when no row of the group has a usable value, never 0. */
+  revenue: number | null
+  /** Percent of the breakdown's total revenue, rounded to 2 decimals. null when the total is not positive. */
+  revenue_share: number | null
+  quantity: number | null
+  order_count: number | null
+  /** Other labels that differ from this one only by letter case or spacing. Never merged. */
+  similar_labels: string[]
+  /** Products only: the categories its rows are filed under. */
+  categories: string[]
+  /** Categories only: distinct products among its rows (null without a product column). */
+  product_count: number | null
+}
+
+/** Every group past the first 1,000, summarized so totals still add up. */
+export type RemainingGroups = {
+  group_count: number
+  row_count: number
+  revenue: number | null
+  quantity: number | null
+  order_count: number | null
+}
+
+export type Breakdown = {
+  dimension: 'product' | 'category'
+  status: 'calculated' | 'unavailable'
+  definition: string
+  columns_used: string[]
+  rows_included: number | null
+  rows_excluded: number | null
+  notes: string[]
+  ranked_by: 'revenue' | 'quantity' | 'row_count' | null
+  group_count: number
+  groups: PerformanceGroup[]
+  remaining: RemainingGroups | null
+  /** Totals over every labelled row (value), with each measure's definition and evidence. */
+  revenue: MetricResult
+  quantity: MetricResult
+  order_count: MetricResult
+}
+
+export type ProductPerformance = {
+  columns_used: Record<MetricRole | 'product' | 'category', string | null>
+  label_rule: string
+  number_rule: string
+  products: Breakdown
+  categories: Breakdown
+}
+
+export type CsvPerformanceResponse = { filename: string; size_bytes: number; performance: ProductPerformance }
+
 // ---------- Requests ----------
 
 export const UPLOAD_ENDPOINTS = {
@@ -101,6 +156,7 @@ export const UPLOAD_ENDPOINTS = {
   profile: '/api/uploads/csv/profile',
   metrics: '/api/uploads/csv/metrics',
   trends: '/api/uploads/csv/trends',
+  performance: '/api/uploads/csv/performance',
 } as const
 
 /** Check that the file is a readable CSV. Returns its row count and column names. */
@@ -126,6 +182,17 @@ export function calculateTrends(
   signal?: AbortSignal,
 ): Promise<CsvTrendsResponse> {
   return requestJson(UPLOAD_ENDPOINTS.trends, csvForm(file, trendFormFields(mapping, options)), isTrendsResponse, signal)
+}
+
+/** Revenue, quantity, and orders by product and by category. */
+export function calculatePerformance(
+  file: File,
+  mapping: ColumnMapping,
+  options: PerformanceOptions,
+  signal?: AbortSignal,
+): Promise<CsvPerformanceResponse> {
+  const form = csvForm(file, performanceFormFields(mapping, options))
+  return requestJson(UPLOAD_ENDPOINTS.performance, form, isPerformanceResponse, signal)
 }
 
 /** A POST request carrying the file in the form field "file", plus any extra form fields. */
@@ -154,4 +221,8 @@ function isMetricsResponse(value: unknown): value is CsvMetricsResponse {
 
 function isTrendsResponse(value: unknown): value is CsvTrendsResponse {
   return isObject(value) && isObject(value.trends) && Array.isArray(value.trends.periods) && isObject(value.trends.revenue)
+}
+
+function isPerformanceResponse(value: unknown): value is CsvPerformanceResponse {
+  return isObject(value) && isObject(value.performance) && isObject(value.performance.products) && isObject(value.performance.categories)
 }

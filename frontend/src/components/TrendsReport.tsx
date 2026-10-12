@@ -17,8 +17,9 @@ import {
   type TrendKey,
   type TrendOptions,
 } from '../lib/trends'
+import { MeasureEvidence, Notes } from './Evidence'
 import { Callout, LoadingState } from './Feedback'
-import { AlertIcon, InfoIcon, Spinner } from './Icons'
+import { Spinner } from './Icons'
 import { TrendChart } from './TrendChart'
 
 type TrendsSectionProps = {
@@ -133,7 +134,7 @@ export function TrendsView({ trends, columns, options, busy, disabled = false, o
               )}
             </figure>
 
-            {series.status === 'calculated' && <SeriesEvidence series={series} />}
+            {series.status === 'calculated' && <MeasureEvidence measure={series} />}
             <TrendTable trends={trends} />
           </>
         ) : (
@@ -227,47 +228,6 @@ function SeriesUnavailable({ series, label }: { series: TrendSeries; label: stri
       <p className="empty-state-title">{label} not available</p>
       <Notes notes={series.notes} tone="info" />
     </div>
-  )
-}
-
-function SeriesEvidence({ series }: { series: TrendSeries }) {
-  return (
-    <div className="trend-evidence">
-      <Notes notes={series.notes} tone="warning" />
-      <div className="metric-footer">
-        {series.rows_included !== null && series.rows_excluded !== null && (
-          <p>
-            Based on {formatCount(series.rows_included)} of {pluralize(series.rows_included + series.rows_excluded, 'row')}
-            {series.rows_excluded > 0 ? `, ${formatCount(series.rows_excluded)} excluded` : ''}
-          </p>
-        )}
-        {series.columns_used.length > 0 && (
-          <p className="metric-columns">
-            <span className="muted">Columns used:</span>{' '}
-            {series.columns_used.map((column) => (
-              <code key={column}>{column}</code>
-            ))}
-          </p>
-        )}
-        <p className="metric-definition">
-          <span className="muted">Definition:</span> {series.definition}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function Notes({ notes, tone }: { notes: string[]; tone: 'warning' | 'info' }) {
-  if (notes.length === 0) return null
-  return (
-    <ul className={tone === 'warning' ? 'metric-notes notes-warning' : 'metric-notes notes-info'}>
-      {notes.map((note) => (
-        <li key={note}>
-          {tone === 'warning' ? <AlertIcon size={15} className="tone-icon tone-warning" /> : <InfoIcon size={15} className="tone-icon tone-info" />}
-          <span>{note}</span>
-        </li>
-      ))}
-    </ul>
   )
 }
 

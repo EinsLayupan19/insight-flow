@@ -55,6 +55,7 @@ export function AnalysisSteps({ analysis }: { analysis: Analysis }) {
     { id: 'profile', label: 'Profile data quality', status: later(analysis.profile) },
     { id: 'metrics', label: 'Calculate retail metrics', status: later(analysis.metrics) },
     { id: 'trends', label: 'Calculate sales trends', status: later(analysis.trends) },
+    { id: 'performance', label: 'Rank products and categories', status: later(analysis.performance) },
   ]
 
   return (

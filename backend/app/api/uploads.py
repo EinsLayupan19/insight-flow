@@ -10,6 +10,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from app.analytics.product_performance import (
+    ProductPerformance,
+    calculate_product_performance,
+    resolve_performance_columns,
+)
 from app.analytics.retail_metrics import ColumnMappingError, RetailMetrics, calculate_retail_metrics, resolve_columns
 from app.analytics.sales_trends import DEFAULT_GRAIN, Grain, SalesTrends, calculate_sales_trends, resolve_trend_columns
 from app.api.csv_upload import CsvFile, parse_or_422, read_csv_upload
@@ -49,6 +54,12 @@ class CsvTrendsResponse(BaseModel):
     filename: str
     size_bytes: int
     trends: SalesTrends
+
+
+class CsvPerformanceResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    performance: ProductPerformance
 
 
 @router.post("/uploads/csv", response_model=CsvUploadResponse)
@@ -130,3 +141,34 @@ async def csv_trends(
 
     trends = await run_in_threadpool(calculate_sales_trends, parsed, columns, grain)
     return CsvTrendsResponse(filename=filename, size_bytes=len(content), trends=trends)
+
+
+@router.post("/uploads/csv/performance", response_model=CsvPerformanceResponse)
+async def csv_performance(
+    settings: SettingsDep,
+    file: CsvFile = None,
+    product_column: Annotated[str | None, _column_field("product")] = None,
+    category_column: Annotated[str | None, _column_field("category")] = None,
+    order_id_column: Annotated[str | None, _column_field("order_id")] = None,
+    quantity_column: Annotated[str | None, _column_field("quantity")] = None,
+    unit_price_column: Annotated[str | None, _column_field("unit_price")] = None,
+    revenue_column: Annotated[str | None, _column_field("revenue")] = None,
+) -> CsvPerformanceResponse:
+    """Revenue, quantity, and orders by product and by category. A missing column makes only its breakdown unavailable."""
+    filename, content = await read_csv_upload(file, settings)
+    parsed = parse_or_422(content)
+    requested = {
+        "product": product_column,
+        "category": category_column,
+        "order_id": order_id_column,
+        "quantity": quantity_column,
+        "unit_price": unit_price_column,
+        "revenue": revenue_column,
+    }
+    try:
+        columns = resolve_performance_columns(parsed.columns, requested)
+    except ColumnMappingError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+
+    performance = await run_in_threadpool(calculate_product_performance, parsed, columns)
+    return CsvPerformanceResponse(filename=filename, size_bytes=len(content), performance=performance)

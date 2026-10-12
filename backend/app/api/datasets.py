@@ -21,12 +21,9 @@ from app.datasets.models import (
     AnalysisRequest,
     DatasetDetail,
     DatasetList,
-    MetricsAnalysis,
-    ProfileAnalysis,
     SaveDatasetResponse,
-    TrendsAnalysis,
 )
-from app.datasets.service import AnalysisNotFoundError, DatasetNotFoundError, DatasetService
+from app.datasets.service import AnalysisNotFoundError, AnalysisResultRecord, DatasetNotFoundError, DatasetService
 from app.ingestion.csv_parser import CsvValidationError
 from app.storage.file_store import StoredFileError
 
@@ -100,12 +97,12 @@ def list_analyses(dataset_id: int, service: ServiceDep) -> AnalysisList:
 @router.post("/{dataset_id}/analyses", response_model=AnalysisRecord, status_code=status.HTTP_201_CREATED)
 async def run_analysis(
     dataset_id: int, request: AnalysisRequest, service: ServiceDep
-) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
-    """Run a data-quality check ("profile"), retail metrics ("metrics"), or sales trends ("trends") and record it."""
+) -> AnalysisResultRecord:
+    """Run a data-quality check, retail metrics, sales trends, or product performance, and record it."""
     return await run_in_threadpool(_call, lambda: service.run_analysis(dataset_id, request))
 
 
 @router.get("/{dataset_id}/analyses/{analysis_id}", response_model=AnalysisRecord)
-def get_analysis(dataset_id: int, analysis_id: int, service: ServiceDep) -> ProfileAnalysis | MetricsAnalysis | TrendsAnalysis:
+def get_analysis(dataset_id: int, analysis_id: int, service: ServiceDep) -> AnalysisResultRecord:
     """One recorded analysis, with its full result exactly as it was returned when it ran."""
     return _call(lambda: service.get_analysis(dataset_id, analysis_id))

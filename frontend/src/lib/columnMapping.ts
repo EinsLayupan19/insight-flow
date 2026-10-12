@@ -29,6 +29,13 @@ export type ColumnMapping = Partial<Record<MetricRole, string>>
 /** Sales trends also group rows by an order date column. This role is for trends only. */
 export const ORDER_DATE_LABEL = 'Order date'
 export type TrendColumnMapping = ColumnMapping & { order_date?: string }
+
+/** Roles that apply to one analysis kind only: order_date (trends), product and category (performance). */
+export const KIND_ONLY_ROLE_LABELS = { order_date: ORDER_DATE_LABEL, product: 'Product', category: 'Category' } as const
+export type KindOnlyRole = keyof typeof KIND_ONLY_ROLE_LABELS
+
+/** Explicit column choices as recorded in a dataset's history, for any analysis kind. */
+export type RecordedColumnMapping = ColumnMapping & Partial<Record<KindOnlyRole, string>>
 export type ResolvedColumns = Record<MetricRole, string | null>
 
 export function resolveColumns(columns: readonly string[], mapping: ColumnMapping): ResolvedColumns {

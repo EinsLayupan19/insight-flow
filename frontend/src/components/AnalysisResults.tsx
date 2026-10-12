@@ -5,7 +5,9 @@ import { formatBytes, formatDateTime, pluralize } from '../lib/format'
 import { datasetHref } from '../lib/route'
 import { Callout } from './Feedback'
 import { MetricsSection } from './MetricsReport'
+import type { PerformanceOptions } from '../lib/performance'
 import type { TrendOptions } from '../lib/trends'
+import { PerformanceSection } from './PerformanceReport'
 import { QualitySection } from './QualityReport'
 import { TrendsSection } from './TrendsReport'
 
@@ -14,8 +16,10 @@ type AnalysisResultsProps = {
   onRetryProfile: () => void
   onRetryMetrics: () => void
   onRetryTrends: () => void
+  onRetryPerformance: () => void
   onApplyMapping: (mapping: ColumnMapping) => void
   onChangeTrendOptions: (options: TrendOptions) => void
+  onChangePerformanceOptions: (options: PerformanceOptions) => void
   onClear: () => void
 }
 
@@ -25,8 +29,10 @@ export function AnalysisResults({
   onRetryProfile,
   onRetryMetrics,
   onRetryTrends,
+  onRetryPerformance,
   onApplyMapping,
   onChangeTrendOptions,
+  onChangePerformanceOptions,
   onClear,
 }: AnalysisResultsProps) {
   if (analysis.validation.status !== 'success') return null
@@ -54,6 +60,9 @@ export function AnalysisResults({
             <button type="button" className="link-button" onClick={() => scrollToSection('sales-trends')}>
               Sales trends
             </button>
+            <button type="button" className="link-button" onClick={() => scrollToSection('product-performance')}>
+              Products
+            </button>
           </div>
           <button type="button" className="button-secondary" onClick={onClear}>
             Clear results
@@ -77,6 +86,13 @@ export function AnalysisResults({
         options={analysis.trendsRequest.options}
         onChangeOptions={onChangeTrendOptions}
         onRetry={onRetryTrends}
+      />
+      <PerformanceSection
+        state={analysis.performance}
+        columns={summary.columns}
+        options={analysis.performanceRequest.options}
+        onChangeOptions={onChangePerformanceOptions}
+        onRetry={onRetryPerformance}
       />
     </section>
   )
