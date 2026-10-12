@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from app.analytics.insights import SalesInsights, calculate_insights, resolve_insight_columns
 from app.analytics.product_performance import (
     ProductPerformance,
     calculate_product_performance,
@@ -60,6 +61,12 @@ class CsvPerformanceResponse(BaseModel):
     filename: str
     size_bytes: int
     performance: ProductPerformance
+
+
+class CsvInsightsResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    insights: SalesInsights
 
 
 @router.post("/uploads/csv", response_model=CsvUploadResponse)
@@ -172,3 +179,37 @@ async def csv_performance(
 
     performance = await run_in_threadpool(calculate_product_performance, parsed, columns)
     return CsvPerformanceResponse(filename=filename, size_bytes=len(content), performance=performance)
+
+
+@router.post("/uploads/csv/insights", response_model=CsvInsightsResponse)
+async def csv_insights(
+    settings: SettingsDep,
+    file: CsvFile = None,
+    grain: Annotated[Grain, Form(description="Compare by day, week (Monday to Sunday), or month.")] = DEFAULT_GRAIN,
+    order_date_column: Annotated[str | None, _column_field("order_date")] = None,
+    product_column: Annotated[str | None, _column_field("product")] = None,
+    category_column: Annotated[str | None, _column_field("category")] = None,
+    order_id_column: Annotated[str | None, _column_field("order_id")] = None,
+    quantity_column: Annotated[str | None, _column_field("quantity")] = None,
+    unit_price_column: Annotated[str | None, _column_field("unit_price")] = None,
+    revenue_column: Annotated[str | None, _column_field("revenue")] = None,
+) -> CsvInsightsResponse:
+    """Plain-English findings from the metrics, trends, and product and category performance. Never states causes."""
+    filename, content = await read_csv_upload(file, settings)
+    parsed = parse_or_422(content)
+    requested = {
+        "order_date": order_date_column,
+        "product": product_column,
+        "category": category_column,
+        "order_id": order_id_column,
+        "quantity": quantity_column,
+        "unit_price": unit_price_column,
+        "revenue": revenue_column,
+    }
+    try:
+        columns = resolve_insight_columns(parsed.columns, requested)
+    except ColumnMappingError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+
+    insights = await run_in_threadpool(calculate_insights, parsed, columns, grain)
+    return CsvInsightsResponse(filename=filename, size_bytes=len(content), insights=insights)

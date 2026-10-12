@@ -12,7 +12,7 @@ export function AnalyzePage({ csv }: { csv: CsvAnalysisController }) {
         <h1>Retail CSV analysis</h1>
         <p>
           Upload a sales file to check its data quality, see the retail metrics its columns support, follow sales over
-          time, and rank products and categories. Every number shows how it was calculated.
+          time, rank products and categories, and read the key findings. Every number shows how it was calculated.
         </p>
       </section>
 
@@ -37,6 +37,7 @@ export function AnalyzePage({ csv }: { csv: CsvAnalysisController }) {
             onRetryMetrics={csv.retryMetrics}
             onRetryTrends={csv.retryTrends}
             onRetryPerformance={csv.retryPerformance}
+            onRetryInsights={csv.retryInsights}
             onApplyMapping={csv.applyMapping}
             onChangeTrendOptions={csv.changeTrendOptions}
             onChangePerformanceOptions={csv.changePerformanceOptions}

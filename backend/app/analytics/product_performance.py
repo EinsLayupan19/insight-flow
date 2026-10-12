@@ -118,17 +118,22 @@ def resolve_performance_columns(
 
 def calculate_product_performance(parsed: ParsedCsv, columns: dict[PerformanceRole, str | None]) -> ProductPerformance:
     """Load the rows into DuckDB and break revenue, quantity, and orders down by product and by category."""
-    metric_columns: dict[Role, str | None] = {role: columns[role] for role in ROLES}
     with load_into_duckdb(parsed) as table:
-        calculation = _Calculation(table, columns, metric_columns)
-        revenue_problem = calculation.create_rows()
-        return ProductPerformance(
-            columns_used=columns,
-            label_rule=LABEL_RULE,
-            number_rule=NUMBER_RULE,
-            products=calculation.breakdown("product", revenue_problem),
-            categories=calculation.breakdown("category", revenue_problem),
-        )
+        return performance_for_table(table, columns)
+
+
+def performance_for_table(table: LoadedTable, columns: Mapping[PerformanceRole, str | None]) -> ProductPerformance:
+    """Performance for rows already loaded into DuckDB. Leaves the working table performance_rows in the connection."""
+    metric_columns: dict[Role, str | None] = {role: columns[role] for role in ROLES}
+    calculation = _Calculation(table, dict(columns), metric_columns)
+    revenue_problem = calculation.create_rows()
+    return ProductPerformance(
+        columns_used=dict(columns),
+        label_rule=LABEL_RULE,
+        number_rule=NUMBER_RULE,
+        products=calculation.breakdown("product", revenue_problem),
+        categories=calculation.breakdown("category", revenue_problem),
+    )
 
 
 @dataclass

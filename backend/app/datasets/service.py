@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from app.analytics.insights import SalesInsights, calculate_insights, resolve_insight_columns
 from app.analytics.product_performance import (
     ProductPerformance,
     calculate_product_performance,
@@ -30,6 +31,8 @@ from app.datasets.models import (
     AnalysisSummary,
     DatasetDetail,
     DatasetSummary,
+    InsightsAnalysis,
+    InsightsHighlights,
     MetricsAnalysis,
     MetricsHighlights,
     PerformanceAnalysis,
@@ -48,7 +51,7 @@ from app.storage.repository import AnalysisRow, DatasetRepository, DatasetRow
 
 logger = logging.getLogger(__name__)
 
-AnalysisResultRecord = ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis
+AnalysisResultRecord = ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis | InsightsAnalysis
 
 UPLOADS_DIRNAME = "uploads"
 MAX_FILENAME_LENGTH = 255
@@ -144,7 +147,7 @@ class DatasetService:
         row = self._dataset_row(dataset_id)
         parsed = parse_csv(self._files.read(row.sha256))  # StoredFileError if missing or changed
 
-        result: QualityReport | RetailMetrics | SalesTrends | ProductPerformance
+        result: QualityReport | RetailMetrics | SalesTrends | ProductPerformance | SalesInsights
         parameters: dict[str, Any]
         if request.kind == "profile":
             result = profile_csv(parsed)
@@ -153,6 +156,11 @@ class DatasetService:
             columns = resolve_columns(parsed.columns, dict(request.column_mapping))  # ColumnMappingError
             result = calculate_retail_metrics(parsed, columns)
             parameters = {"column_mapping": request.column_mapping}
+        elif request.kind == "insights":
+            grain = request.grain or DEFAULT_GRAIN
+            insight_columns = resolve_insight_columns(parsed.columns, dict(request.column_mapping))  # ColumnMappingError
+            result = calculate_insights(parsed, insight_columns, grain)
+            parameters = {"column_mapping": request.column_mapping, "grain": grain}
         elif request.kind == "performance":
             performance_columns = resolve_performance_columns(parsed.columns, dict(request.column_mapping))
             result = calculate_product_performance(parsed, performance_columns)
@@ -253,6 +261,9 @@ def _record(row: AnalysisRow) -> AnalysisResultRecord:
     }
     if row.kind == "profile":
         return ProfileAnalysis(kind="profile", result=QualityReport.model_validate_json(row.result_json), **common)
+    if row.kind == "insights":
+        insights = SalesInsights.model_validate_json(row.result_json)
+        return InsightsAnalysis(kind="insights", grain=insights.grain, result=insights, **common)
     if row.kind == "performance":
         result = ProductPerformance.model_validate_json(row.result_json)
         return PerformanceAnalysis(kind="performance", result=result, **common)
@@ -264,13 +275,21 @@ def _record(row: AnalysisRow) -> AnalysisResultRecord:
 
 def _analysis_summary(row: AnalysisRow) -> AnalysisSummary:
     record = _record(row)
-    highlights: ProfileHighlights | MetricsHighlights | TrendsHighlights | PerformanceHighlights
+    highlights: ProfileHighlights | MetricsHighlights | TrendsHighlights | PerformanceHighlights | InsightsHighlights
     if isinstance(record, ProfileAnalysis):
         report = record.result
         highlights = ProfileHighlights(
             duplicate_row_count=report.duplicate_row_count,
             missing_value_count=sum(column.missing_count for column in report.columns),
             type_mismatch_count=sum(column.mismatch_count for column in report.columns),
+        )
+    elif isinstance(record, InsightsAnalysis):
+        findings = record.result.insights
+        highlights = InsightsHighlights(
+            grain=record.result.grain,
+            finding_count=len(findings),
+            high_count=sum(item.importance == "high" for item in findings),
+            not_assessed_count=len(record.result.not_assessed),
         )
     elif isinstance(record, PerformanceAnalysis):
         products, categories = record.result.products, record.result.categories

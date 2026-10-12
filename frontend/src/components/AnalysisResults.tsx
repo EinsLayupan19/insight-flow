@@ -7,6 +7,7 @@ import { Callout } from './Feedback'
 import { MetricsSection } from './MetricsReport'
 import type { PerformanceOptions } from '../lib/performance'
 import type { TrendOptions } from '../lib/trends'
+import { KeyFindingsSection } from './KeyFindings'
 import { PerformanceSection } from './PerformanceReport'
 import { QualitySection } from './QualityReport'
 import { TrendsSection } from './TrendsReport'
@@ -17,6 +18,7 @@ type AnalysisResultsProps = {
   onRetryMetrics: () => void
   onRetryTrends: () => void
   onRetryPerformance: () => void
+  onRetryInsights: () => void
   onApplyMapping: (mapping: ColumnMapping) => void
   onChangeTrendOptions: (options: TrendOptions) => void
   onChangePerformanceOptions: (options: PerformanceOptions) => void
@@ -30,6 +32,7 @@ export function AnalysisResults({
   onRetryMetrics,
   onRetryTrends,
   onRetryPerformance,
+  onRetryInsights,
   onApplyMapping,
   onChangeTrendOptions,
   onChangePerformanceOptions,
@@ -51,6 +54,9 @@ export function AnalysisResults({
         </div>
         <div className="results-actions">
           <div className="section-links" role="group" aria-label="Jump to a result section">
+            <button type="button" className="link-button" onClick={() => scrollToSection('key-findings')}>
+              Key findings
+            </button>
             <button type="button" className="link-button" onClick={() => scrollToSection('data-quality')}>
               Data quality
             </button>
@@ -72,6 +78,7 @@ export function AnalysisResults({
 
       {analysis.saved && <SavedNotice saved={analysis.saved} />}
 
+      <KeyFindingsSection state={analysis.insights} onRetry={onRetryInsights} />
       <QualitySection state={analysis.profile} onRetry={onRetryProfile} />
       <MetricsSection
         state={analysis.metrics}

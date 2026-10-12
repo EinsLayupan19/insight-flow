@@ -1440,7 +1440,8 @@ a.button-ghost {
 @media (prefers-reduced-motion: reduce) {
   .trends-body,
   .metrics-body,
-  .performance-body {
+  .performance-body,
+  .findings-body {
     transition: none;
   }
 }
@@ -1544,6 +1545,101 @@ a.button-ghost {
 
 .table-note {
   margin-top: 6px;
+}
+
+/* ---------- Key findings ---------- */
+
+.findings-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.findings-body.is-stale {
+  opacity: 0.5;
+}
+
+.findings-subheading {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--gray-700);
+}
+
+.findings-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Importance is a priority, not a status: plain text and a neutral rule, never a status color. */
+.finding {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--gray-200);
+  border-left: 3px solid var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+
+.finding-high {
+  border-left-color: var(--navy-700);
+}
+
+.finding-importance {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.finding-title {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.finding-statement {
+  color: var(--gray-700);
+  overflow-wrap: anywhere;
+}
+
+.finding-questions ul,
+.not-assessed {
+  margin: 4px 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--gray-600);
+}
+
+.not-assessed li + li {
+  margin-top: 4px;
+}
+
+.not-assessed-title {
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.finding-evidence summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--navy-800);
+}
+
+.finding-evidence .table-scroll {
+  margin-top: 8px;
+}
+
+.evidence-table {
+  min-width: 640px;
+  font-size: 0.8rem;
+}
+
+.evidence-table .numeric {
+  text-align: right;
 }
 
 /* ---------- Dataset library ---------- */

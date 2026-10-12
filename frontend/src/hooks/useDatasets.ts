@@ -5,6 +5,7 @@ import {
   getDataset,
   listAnalyses,
   listDatasets,
+  runInsightsAnalysis,
   runMetricsAnalysis,
   runPerformanceAnalysis,
   runProfileAnalysis,
@@ -19,6 +20,7 @@ import type { ColumnMapping } from '../lib/columnMapping'
 import { selectedAnalysisId } from '../lib/datasetDisplay'
 import { userMessage } from '../lib/errors'
 import { failedFrom, latestData, loadingFrom, type RequestState } from '../lib/requestState'
+import type { InsightOptions } from '../lib/insights'
 import type { PerformanceOptions } from '../lib/performance'
 import type { TrendOptions } from '../lib/trends'
 
@@ -56,6 +58,7 @@ export type AnalysisRun =
   | { kind: 'metrics'; mapping: ColumnMapping }
   | { kind: 'trends'; mapping: ColumnMapping; options: TrendOptions }
   | { kind: 'performance'; mapping: ColumnMapping; options: PerformanceOptions }
+  | { kind: 'insights'; mapping: ColumnMapping; options: InsightOptions }
 
 function startRun(datasetId: number, run: AnalysisRun): Promise<AnalysisRecord> {
   switch (run.kind) {
@@ -67,6 +70,8 @@ function startRun(datasetId: number, run: AnalysisRun): Promise<AnalysisRecord> 
       return runTrendsAnalysis(datasetId, run.mapping, run.options)
     case 'performance':
       return runPerformanceAnalysis(datasetId, run.mapping, run.options)
+    case 'insights':
+      return runInsightsAnalysis(datasetId, run.mapping, run.options)
   }
 }
 

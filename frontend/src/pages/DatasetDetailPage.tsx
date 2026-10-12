@@ -1,9 +1,17 @@
 import { useState } from 'react'
-import type { AnalysisRecord, AnalysisSummary, DatasetDetail, PerformanceAnalysisRecord, TrendsAnalysisRecord } from '../api/datasets'
+import type {
+  AnalysisRecord,
+  AnalysisSummary,
+  DatasetDetail,
+  InsightsAnalysisRecord,
+  PerformanceAnalysisRecord,
+  TrendsAnalysisRecord,
+} from '../api/datasets'
 import { ColumnMappingPanel } from '../components/ColumnMappingPanel'
 import { Callout, LoadingState, StatusBadge } from '../components/Feedback'
 import { Spinner } from '../components/Icons'
 import { MetricsView } from '../components/MetricsReport'
+import { KeyFindingsView } from '../components/KeyFindings'
 import { PerformanceView } from '../components/PerformanceReport'
 import { QualityReportView } from '../components/QualityReport'
 import { TrendsView } from '../components/TrendsReport'
@@ -15,8 +23,9 @@ import { formatBytes, formatDateTime, pluralize } from '../lib/format'
 import { hasUnavailableMetrics } from '../lib/metricDisplay'
 import { latestData, type RequestState } from '../lib/requestState'
 import { datasetHref, routeHref } from '../lib/route'
+import { DEFAULT_INSIGHT_OPTIONS, type InsightOptions } from '../lib/insights'
 import { DEFAULT_PERFORMANCE_OPTIONS, type PerformanceOptions } from '../lib/performance'
-import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
+import { DEFAULT_TREND_OPTIONS, GRAINS, GRAIN_LABELS, type TrendOptions } from '../lib/trends'
 
 type DatasetDetailPageProps = {
   datasetId: number
@@ -29,6 +38,7 @@ const RUNNING_TEXT: Record<DatasetAction, string> = {
   metrics: 'Calculating retail metrics from the stored file…',
   trends: 'Calculating sales trends from the stored file…',
   performance: 'Ranking products and categories in the stored file…',
+  insights: 'Finding key insights in the stored file…',
   delete: 'Deleting the dataset…',
 }
 
@@ -120,6 +130,14 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
             >
               Rank products
             </button>
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={!canAnalyze}
+              onClick={() => void run({ kind: 'insights', mapping: {}, options: DEFAULT_INSIGHT_OPTIONS })}
+            >
+              Find insights
+            </button>
             <button type="button" className="button-ghost danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
               Delete dataset
             </button>
@@ -202,8 +220,8 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           detail.analyses.status === 'loading' && <LoadingState>Loading the history…</LoadingState>
         ) : analyses.length === 0 ? (
           <p className="empty-state">
-            No analyses recorded yet. Run a data-quality check, calculate metrics or trends, or rank products to start
-            the history.
+            No analyses recorded yet. Run a data-quality check, calculate metrics or trends, rank products, or find
+            insights to start the history.
           </p>
         ) : (
           <HistoryList datasetId={dataset.id} analyses={analyses} selectedId={detail.selectedId} />
@@ -218,6 +236,7 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           onApplyMapping={(mapping) => void run({ kind: 'metrics', mapping })}
           onRunTrends={(mapping, options) => void run({ kind: 'trends', mapping, options })}
           onRunPerformance={(mapping, options) => void run({ kind: 'performance', mapping, options })}
+          onRunInsights={(mapping, options) => void run({ kind: 'insights', mapping, options })}
           onRetry={detail.reload}
         />
       )}
@@ -299,11 +318,21 @@ type AnalysisViewerProps = {
   onApplyMapping: (mapping: ColumnMapping) => void
   onRunTrends: (mapping: ColumnMapping, options: TrendOptions) => void
   onRunPerformance: (mapping: ColumnMapping, options: PerformanceOptions) => void
+  onRunInsights: (mapping: ColumnMapping, options: InsightOptions) => void
   onRetry: () => void
 }
 
 /** A recorded result, exactly as stored. Changing the mapping records a new analysis; it never edits this one. */
-function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, onRunPerformance, onRetry }: AnalysisViewerProps) {
+function AnalysisViewer({
+  record,
+  dataset,
+  busy,
+  onApplyMapping,
+  onRunTrends,
+  onRunPerformance,
+  onRunInsights,
+  onRetry,
+}: AnalysisViewerProps) {
   const data = latestData(record)
   return (
     <section className="card section-card" aria-labelledby="viewer-heading" aria-busy={record.status === 'loading'}>
@@ -338,6 +367,8 @@ function AnalysisViewer({ record, dataset, busy, onApplyMapping, onRunTrends, on
         <QualityReportView report={data.result} />
       ) : data.kind === 'trends' ? (
         <RecordedTrends record={data} dataset={dataset} disabled={busy || !dataset.file_stored} onRun={onRunTrends} />
+      ) : data.kind === 'insights' ? (
+        <RecordedInsights record={data} disabled={busy || !dataset.file_stored} onRun={onRunInsights} />
       ) : data.kind === 'performance' ? (
         <RecordedPerformance record={data} dataset={dataset} disabled={busy || !dataset.file_stored} onRun={onRunPerformance} />
       ) : (
@@ -425,5 +456,46 @@ function RecordedPerformance({ record, dataset, disabled, onRun }: RecordedPerfo
         onChangeOptions={(next) => onRun(mapping, next)}
       />
     </>
+  )
+}
+
+type RecordedInsightsProps = {
+  record: InsightsAnalysisRecord
+  disabled: boolean
+  onRun: (mapping: ColumnMapping, options: InsightOptions) => void
+}
+
+/** Recorded findings. Comparing by another period records a new insights analysis with the same columns. */
+function RecordedInsights({ record, disabled, onRun }: RecordedInsightsProps) {
+  const mapping = explicitMapping(record.column_mapping)
+  const options: InsightOptions = {
+    grain: record.grain,
+    dateColumn: record.column_mapping.order_date ?? '',
+    productColumn: record.column_mapping.product ?? '',
+    categoryColumn: record.column_mapping.category ?? '',
+  }
+  return (
+    <KeyFindingsView insights={record.result} busy={false}>
+      <div className="trend-controls">
+        <fieldset className="field">
+          <legend>Compare by</legend>
+          <div className="segmented">
+            {GRAINS.map((grain) => (
+              <label key={grain} className="segment">
+                <input
+                  type="radio"
+                  name="insights-grain"
+                  value={grain}
+                  checked={grain === record.grain}
+                  disabled={disabled}
+                  onChange={() => onRun(mapping, { ...options, grain })}
+                />
+                <span>{GRAIN_LABELS[grain]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+    </KeyFindingsView>
   )
 }

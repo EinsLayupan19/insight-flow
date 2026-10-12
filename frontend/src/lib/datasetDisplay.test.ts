@@ -47,6 +47,21 @@ describe('describeHighlights for trends', () => {
   })
 })
 
+describe('describeHighlights for insights', () => {
+  it('counts findings, high-importance ones, and checks that could not run', () => {
+    const insights = (finding_count: number, high_count: number, not_assessed_count: number): AnalysisSummary => ({
+      ...base,
+      id: 5,
+      kind: 'insights',
+      highlights: { grain: 'month', finding_count, high_count, not_assessed_count },
+    })
+
+    expect(describeHighlights(insights(4, 2, 3))).toBe('4 findings · 2 high · 3 not assessed')
+    expect(describeHighlights(insights(1, 0, 0))).toBe('1 finding')
+    expect(describeHighlights(insights(0, 0, 5))).toBe('No findings · 5 not assessed')
+  })
+})
+
 describe('describeHighlights for performance', () => {
   it('names how many products and categories were found, or which breakdown is unavailable', () => {
     const performance = (product_count: number | null, category_count: number | null): AnalysisSummary => ({

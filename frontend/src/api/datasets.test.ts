@@ -5,6 +5,7 @@ import {
   listAnalyses,
   listDatasets,
   runMetricsAnalysis,
+  runInsightsAnalysis,
   runPerformanceAnalysis,
   runProfileAnalysis,
   runTrendsAnalysis,
@@ -129,6 +130,28 @@ describe('requests match the backend contract', () => {
       kind: 'performance',
       column_mapping: { quantity: 'Qty', product: 'SKU', category: 'Dept' },
     })
+  })
+
+  it('sends the grain and the chosen columns with an insights analysis', async () => {
+    const record = { ...RECORD_BASE, kind: 'insights', grain: 'week', result: { insights: [], not_assessed: [] } }
+    const fetchMock = mockFetch(jsonResponse(record, 201))
+
+    await expect(
+      runInsightsAnalysis(7, { revenue: 'Amount' }, { grain: 'week', dateColumn: 'Day', productColumn: 'SKU', categoryColumn: '' }),
+    ).resolves.toEqual(record)
+
+    expect(JSON.parse(sentRequest(fetchMock).init.body as string)).toEqual({
+      kind: 'insights',
+      grain: 'week',
+      column_mapping: { revenue: 'Amount', order_date: 'Day', product: 'SKU' },
+    })
+  })
+
+  it('reads a recorded insights analysis from the history', async () => {
+    const record = { ...RECORD_BASE, kind: 'insights', grain: 'month', result: { insights: [], not_assessed: [] } }
+    mockFetch(jsonResponse(record))
+
+    await expect(getAnalysis(7, 3)).resolves.toEqual(record)
   })
 
   it('reads a recorded performance analysis from the history', async () => {

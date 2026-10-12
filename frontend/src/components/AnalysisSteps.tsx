@@ -56,6 +56,7 @@ export function AnalysisSteps({ analysis }: { analysis: Analysis }) {
     { id: 'metrics', label: 'Calculate retail metrics', status: later(analysis.metrics) },
     { id: 'trends', label: 'Calculate sales trends', status: later(analysis.trends) },
     { id: 'performance', label: 'Rank products and categories', status: later(analysis.performance) },
+    { id: 'insights', label: 'Find key insights', status: later(analysis.insights) },
   ]
 
   return (

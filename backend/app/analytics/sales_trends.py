@@ -113,11 +113,16 @@ def calculate_sales_trends(
     parsed: ParsedCsv, columns: dict[TrendRole, str | None], grain: Grain = DEFAULT_GRAIN
 ) -> SalesTrends:
     """Load the rows into DuckDB, group them by period, and calculate every series the columns support."""
+    with load_into_duckdb(parsed) as table:
+        return trends_for_table(table, columns, grain)
+
+
+def trends_for_table(table: LoadedTable, columns: Mapping[TrendRole, str | None], grain: Grain = DEFAULT_GRAIN) -> SalesTrends:
+    """Trends for rows already loaded into DuckDB. Leaves the working table trend_rows in the connection."""
     if grain not in GRAINS:
         raise ValueError(f"grain must be one of {', '.join(GRAINS)}, not {grain!r}.")
     metric_columns: dict[Role, str | None] = {role: columns[role] for role in ROLES}
-    with load_into_duckdb(parsed) as table:
-        return _Calculation(table, columns, metric_columns, grain).run()
+    return _Calculation(table, dict(columns), metric_columns, grain).run()
 
 
 @dataclass

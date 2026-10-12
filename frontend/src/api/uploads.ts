@@ -4,6 +4,7 @@
 // every analysis step uploads the file again.
 
 import { mappingFormFields, type ColumnMapping, type MetricRole } from '../lib/columnMapping'
+import { insightFormFields, type InsightOptions } from '../lib/insights'
 import { performanceFormFields, type PerformanceOptions } from '../lib/performance'
 import { trendFormFields, type TrendOptions } from '../lib/trends'
 import { isObject, requestJson } from './http'
@@ -149,6 +150,74 @@ export type ProductPerformance = {
 
 export type CsvPerformanceResponse = { filename: string; size_bytes: number; performance: ProductPerformance }
 
+/** Calendar dates (YYYY-MM-DD), inclusive. */
+export type InsightDateRange = { start: string; end: string }
+
+export type InsightEvidence = {
+  metric: string
+  value: number | null
+  previous?: number | null
+  change?: number | null
+  /** Signed, rounded to 1 decimal. null from a zero or negative baseline. */
+  change_percent?: number | null
+  period?: InsightDateRange | null
+  comparison_period?: InsightDateRange | null
+  rows?: number | null
+  comparison_rows?: number | null
+  /** The product or category, for per-label findings. */
+  label?: string | null
+}
+
+export type Insight = {
+  id: string
+  kind: 'period_change' | 'unusual_period' | 'streak' | 'mover' | 'concentration' | 'negative_revenue' | 'range'
+  importance: 'high' | 'medium' | 'low'
+  title: string
+  /** What the numbers show, from a fixed template. Never a cause. */
+  statement: string
+  evidence: InsightEvidence[]
+  caveats: string[]
+  /** Things worth checking. Not findings. */
+  questions: string[]
+}
+
+export type InsightThresholds = {
+  min_rows_per_period: number
+  min_periods_for_streak: number
+  min_periods_for_range: number
+  min_periods_for_unusual: number
+  unusual_score: number
+  max_unusual_periods: number
+  high_change_percent: number
+  medium_change_percent: number
+  high_share_percent: number
+  medium_share_percent: number
+  medium_negative_percent: number
+  concentration_target_percent: number
+}
+
+export type SalesInsights = {
+  grain: Grain
+  columns_used: Record<MetricRole | 'order_date' | 'product' | 'category', string | null>
+  definition: string
+  thresholds: InsightThresholds
+  coverage: {
+    first_date: string | null
+    last_date: string | null
+    periods: number
+    complete_periods: number
+    partial_periods: (InsightDateRange & { covered_from: string; covered_to: string })[]
+  }
+  /** Most important first. */
+  insights: Insight[]
+  /** Checks that could not run, each with the reason. */
+  not_assessed: { kind: Insight['kind']; title: string; reason: string }[]
+  /** About the whole file. */
+  caveats: string[]
+}
+
+export type CsvInsightsResponse = { filename: string; size_bytes: number; insights: SalesInsights }
+
 // ---------- Requests ----------
 
 export const UPLOAD_ENDPOINTS = {
@@ -157,6 +226,7 @@ export const UPLOAD_ENDPOINTS = {
   metrics: '/api/uploads/csv/metrics',
   trends: '/api/uploads/csv/trends',
   performance: '/api/uploads/csv/performance',
+  insights: '/api/uploads/csv/insights',
 } as const
 
 /** Check that the file is a readable CSV. Returns its row count and column names. */
@@ -195,6 +265,16 @@ export function calculatePerformance(
   return requestJson(UPLOAD_ENDPOINTS.performance, form, isPerformanceResponse, signal)
 }
 
+/** Plain-English findings built from the metrics, trends, and product and category performance. */
+export function calculateInsights(
+  file: File,
+  mapping: ColumnMapping,
+  options: InsightOptions,
+  signal?: AbortSignal,
+): Promise<CsvInsightsResponse> {
+  return requestJson(UPLOAD_ENDPOINTS.insights, csvForm(file, insightFormFields(mapping, options)), isInsightsResponse, signal)
+}
+
 /** A POST request carrying the file in the form field "file", plus any extra form fields. */
 export function csvForm(file: File, fields: Record<string, string>): RequestInit {
   const form = new FormData()
@@ -225,4 +305,8 @@ function isTrendsResponse(value: unknown): value is CsvTrendsResponse {
 
 function isPerformanceResponse(value: unknown): value is CsvPerformanceResponse {
   return isObject(value) && isObject(value.performance) && isObject(value.performance.products) && isObject(value.performance.categories)
+}
+
+function isInsightsResponse(value: unknown): value is CsvInsightsResponse {
+  return isObject(value) && isObject(value.insights) && Array.isArray(value.insights.insights) && Array.isArray(value.insights.not_assessed)
 }

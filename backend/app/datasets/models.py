@@ -5,15 +5,21 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.analytics.insights import SalesInsights
 from app.analytics.product_performance import ProductPerformance
 from app.analytics.retail_metrics import RetailMetrics
 from app.analytics.sales_trends import DEFAULT_GRAIN, Grain, SalesTrends
 from app.ingestion.profiler import QualityReport
 
-AnalysisKind = Literal["profile", "metrics", "trends", "performance"]
-# Every role a column can be mapped to. Some apply to one kind only (see KIND_ONLY_ROLES).
+AnalysisKind = Literal["profile", "metrics", "trends", "performance", "insights"]
+# Every role a column can be mapped to. Some apply to certain kinds only (see KIND_ONLY_ROLES).
 MappingRole = Literal["order_date", "product", "category", "order_id", "quantity", "unit_price", "revenue"]
-KIND_ONLY_ROLES: dict[str, AnalysisKind] = {"order_date": "trends", "product": "performance", "category": "performance"}
+KIND_ONLY_ROLES: dict[str, tuple[AnalysisKind, ...]] = {
+    "order_date": ("trends", "insights"),
+    "product": ("performance", "insights"),
+    "category": ("performance", "insights"),
+}
+GRAIN_KINDS: tuple[AnalysisKind, ...] = ("trends", "insights")  # kinds that group rows by period
 
 
 class DatasetSummary(BaseModel):
@@ -51,14 +57,14 @@ class AnalysisRequest(BaseModel):
     column_mapping: dict[MappingRole, str] = Field(
         default_factory=dict,
         description=(
-            "Metrics, trends, and performance only: the column to use for each role. Roles left out use a "
-            "column with exactly that name. order_date applies to trends only; product and category to "
-            "performance only."
+            "Every kind except profile: the column to use for each role. Roles left out use a column with "
+            "exactly that name. order_date applies to trends and insights; product and category to "
+            "performance and insights."
         ),
     )
     grain: Grain | None = Field(
         default=None,
-        description=f"Trends only: group by day, week (Monday to Sunday), or month. Defaults to {DEFAULT_GRAIN}.",
+        description=f"Trends and insights only: group by day, week (Monday to Sunday), or month. Defaults to {DEFAULT_GRAIN}.",
     )
 
     @field_validator("column_mapping")
@@ -70,13 +76,14 @@ class AnalysisRequest(BaseModel):
     @model_validator(mode="after")
     def _options_match_the_kind(self) -> "AnalysisRequest":
         if self.kind == "profile" and self.column_mapping:
-            raise ValueError("column_mapping only applies to kinds 'metrics', 'trends', and 'performance'.")
-        for role, kind in KIND_ONLY_ROLES.items():
-            if role in self.column_mapping and self.kind != kind:
-                raise ValueError(f"The column_mapping role '{role}' only applies to kind '{kind}'.")
-        if self.kind != "trends" and self.grain is not None:
-            raise ValueError("grain only applies to kind 'trends'.")
-        if self.kind == "trends" and self.grain is None:
+            raise ValueError("column_mapping does not apply to kind 'profile'.")
+        for role, kinds in KIND_ONLY_ROLES.items():
+            if role in self.column_mapping and self.kind not in kinds:
+                allowed = " or ".join(f"'{kind}'" for kind in kinds)
+                raise ValueError(f"The column_mapping role '{role}' only applies to kind {allowed}.")
+        if self.kind not in GRAIN_KINDS and self.grain is not None:
+            raise ValueError("grain only applies to kind 'trends' or 'insights'.")
+        if self.kind in GRAIN_KINDS and self.grain is None:
             self.grain = DEFAULT_GRAIN
         return self
 
@@ -104,6 +111,13 @@ class PerformanceHighlights(BaseModel):
     category_count: int | None
 
 
+class InsightsHighlights(BaseModel):
+    grain: Grain
+    finding_count: int
+    high_count: int  # findings of high importance
+    not_assessed_count: int  # checks that could not run, each with its reason
+
+
 class _AnalysisBase(BaseModel):
     id: int
     dataset_id: int
@@ -116,7 +130,7 @@ class AnalysisSummary(_AnalysisBase):
     """One history entry, with a few headline numbers instead of the full result."""
 
     kind: AnalysisKind
-    highlights: PerformanceHighlights | TrendsHighlights | MetricsHighlights | ProfileHighlights
+    highlights: InsightsHighlights | PerformanceHighlights | TrendsHighlights | MetricsHighlights | ProfileHighlights
 
 
 class AnalysisList(BaseModel):
@@ -144,6 +158,13 @@ class PerformanceAnalysis(_AnalysisBase):
     result: ProductPerformance
 
 
+class InsightsAnalysis(_AnalysisBase):
+    kind: Literal["insights"]
+    grain: Grain
+    result: SalesInsights
+
+
 AnalysisRecord = Annotated[
-    ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis, Field(discriminator="kind")
+    ProfileAnalysis | MetricsAnalysis | TrendsAnalysis | PerformanceAnalysis | InsightsAnalysis,
+    Field(discriminator="kind"),
 ]

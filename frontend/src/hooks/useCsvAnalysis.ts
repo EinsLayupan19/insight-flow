@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  runInsightsAnalysis,
   runMetricsAnalysis,
   runPerformanceAnalysis,
   runProfileAnalysis,
@@ -8,6 +9,7 @@ import {
   type SaveDatasetResponse,
 } from '../api/datasets'
 import {
+  calculateInsights,
   calculateMetrics,
   calculatePerformance,
   calculateTrends,
@@ -16,9 +18,11 @@ import {
   type ProductPerformance,
   type QualityReport,
   type RetailMetrics,
+  type SalesInsights,
   type SalesTrends,
 } from '../api/uploads'
 import type { ColumnMapping } from '../lib/columnMapping'
+import { DEFAULT_INSIGHT_OPTIONS, insightOptionsFrom, type InsightOptions } from '../lib/insights'
 import { DEFAULT_PERFORMANCE_OPTIONS, type PerformanceOptions } from '../lib/performance'
 import { DEFAULT_TREND_OPTIONS, type TrendOptions } from '../lib/trends'
 import { userMessage } from '../lib/errors'
@@ -59,6 +63,9 @@ export type Analysis = {
   performance: RequestState<ProductPerformance>
   /** Inputs of the latest performance request (used by "Try again" and when a label column changes). */
   performanceRequest: PerformanceRequest
+  insights: RequestState<SalesInsights>
+  /** Inputs of the latest insights request (used by "Try again"). */
+  insightsRequest: InsightsRequest
 }
 
 /** Trends share the metrics' column choices and add a grain and a date column. */
@@ -66,6 +73,9 @@ type TrendsRequest = { mapping: ColumnMapping; options: TrendOptions }
 
 /** Product and category performance shares the metrics' column choices and adds the label columns. */
 type PerformanceRequest = { mapping: ColumnMapping; options: PerformanceOptions }
+
+/** Insights follow the other sections: the column mapping, the trends' grain and date, and the label columns. */
+type InsightsRequest = { mapping: ColumnMapping; options: InsightOptions }
 
 /** Where results come from: the saved dataset (recorded in its history), or the file itself (not stored). */
 type Source = { file: File; datasetId: number | null }
@@ -104,6 +114,13 @@ async function fetchPerformance(source: Source, request: PerformanceRequest, sig
   return (await calculatePerformance(source.file, request.mapping, request.options, signal)).performance
 }
 
+async function fetchInsights(source: Source, request: InsightsRequest, signal: AbortSignal): Promise<SalesInsights> {
+  if (source.datasetId !== null) {
+    return (await runInsightsAnalysis(source.datasetId, request.mapping, request.options, signal)).result
+  }
+  return (await calculateInsights(source.file, request.mapping, request.options, signal)).insights
+}
+
 export function useCsvAnalysis() {
   const [selection, setSelection] = useState<FileSelection>(EMPTY_SELECTION)
   const [saveToLibrary, setSaveToLibrary] = useState(true)
@@ -113,6 +130,7 @@ export function useCsvAnalysis() {
   const metricsController = useRef<AbortController | null>(null)
   const trendsController = useRef<AbortController | null>(null)
   const performanceController = useRef<AbortController | null>(null)
+  const insightsController = useRef<AbortController | null>(null)
   const nextId = useRef(1)
 
   const abortAll = useCallback(() => {
@@ -120,6 +138,7 @@ export function useCsvAnalysis() {
     metricsController.current?.abort()
     trendsController.current?.abort()
     performanceController.current?.abort()
+    insightsController.current?.abort()
   }, [])
 
   useEffect(() => abortAll, [abortAll]) // cancel in-flight requests if the app unmounts
@@ -198,6 +217,24 @@ export function useCsvAnalysis() {
     [update],
   )
 
+  const runInsights = useCallback(
+    async (id: number, source: Source, request: InsightsRequest) => {
+      insightsController.current?.abort() // a newer request replaces one still running
+      const controller = new AbortController()
+      insightsController.current = controller
+      update(id, (a) => ({ ...a, insightsRequest: request, insights: loadingFrom(a.insights) }))
+      try {
+        const data = await fetchInsights(source, request, controller.signal)
+        update(id, (a) => ({ ...a, insights: { status: 'success', data } }))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const message = userMessage(error)
+        update(id, (a) => ({ ...a, insights: failedFrom(a.insights, message) }))
+      }
+    },
+    [update],
+  )
+
   const analyze = useCallback(
     async (file: File, mode: StorageMode) => {
       abortAll()
@@ -219,6 +256,8 @@ export function useCsvAnalysis() {
         appliedTrendOptions: DEFAULT_TREND_OPTIONS,
         performance: { status: 'idle' },
         performanceRequest: { mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS },
+        insights: { status: 'idle' },
+        insightsRequest: { mapping: {}, options: DEFAULT_INSIGHT_OPTIONS },
       })
 
       let source: Source
@@ -238,8 +277,9 @@ export function useCsvAnalysis() {
       void runMetrics(id, source, {})
       void runTrends(id, source, { mapping: {}, options: DEFAULT_TREND_OPTIONS })
       void runPerformance(id, source, { mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS })
+      void runInsights(id, source, { mapping: {}, options: DEFAULT_INSIGHT_OPTIONS })
     },
-    [abortAll, update, runProfile, runMetrics, runTrends, runPerformance],
+    [abortAll, update, runProfile, runMetrics, runTrends, runPerformance, runInsights],
   )
 
   const selectFiles = useCallback((files: readonly File[]) => setSelection(selectCsvFile(files)), [])
@@ -272,31 +312,44 @@ export function useCsvAnalysis() {
     if (analysis) void runPerformance(analysis.id, sourceOf(analysis), analysis.performanceRequest)
   }, [analysis, runPerformance])
 
-  /** New column choices apply to the metrics, the trends, and the product and category rankings. */
+  const retryInsights = useCallback(() => {
+    if (analysis) void runInsights(analysis.id, sourceOf(analysis), analysis.insightsRequest)
+  }, [analysis, runInsights])
+
+  /** New column choices apply to every analysis that uses them, and to the findings. */
   const applyMapping = useCallback(
     (mapping: ColumnMapping) => {
       if (!analysis) return
-      void runMetrics(analysis.id, sourceOf(analysis), mapping)
-      void runTrends(analysis.id, sourceOf(analysis), { mapping, options: analysis.trendsRequest.options })
-      void runPerformance(analysis.id, sourceOf(analysis), { mapping, options: analysis.performanceRequest.options })
+      const source = sourceOf(analysis)
+      void runMetrics(analysis.id, source, mapping)
+      void runTrends(analysis.id, source, { mapping, options: analysis.trendsRequest.options })
+      void runPerformance(analysis.id, source, { mapping, options: analysis.performanceRequest.options })
+      const options = insightOptionsFrom(analysis.trendsRequest.options, analysis.performanceRequest.options)
+      void runInsights(analysis.id, source, { mapping, options })
     },
-    [analysis, runMetrics, runTrends, runPerformance],
+    [analysis, runMetrics, runTrends, runPerformance, runInsights],
   )
 
-  /** A different product or category column re-runs the rankings only. */
+  /** A different product or category column re-runs the rankings, and the findings that use them. */
   const changePerformanceOptions = useCallback(
     (options: PerformanceOptions) => {
-      if (analysis) void runPerformance(analysis.id, sourceOf(analysis), { mapping: analysis.performanceRequest.mapping, options })
+      if (!analysis) return
+      void runPerformance(analysis.id, sourceOf(analysis), { mapping: analysis.performanceRequest.mapping, options })
+      const insightOptions = insightOptionsFrom(analysis.trendsRequest.options, options)
+      void runInsights(analysis.id, sourceOf(analysis), { mapping: analysis.insightsRequest.mapping, options: insightOptions })
     },
-    [analysis, runPerformance],
+    [analysis, runPerformance, runInsights],
   )
 
-  /** A different grain or date column re-runs the trends only. */
+  /** A different grain or date column re-runs the trends, and the findings that use them. */
   const changeTrendOptions = useCallback(
     (options: TrendOptions) => {
-      if (analysis) void runTrends(analysis.id, sourceOf(analysis), { mapping: analysis.trendsRequest.mapping, options })
+      if (!analysis) return
+      void runTrends(analysis.id, sourceOf(analysis), { mapping: analysis.trendsRequest.mapping, options })
+      const insightOptions = insightOptionsFrom(options, analysis.performanceRequest.options)
+      void runInsights(analysis.id, sourceOf(analysis), { mapping: analysis.insightsRequest.mapping, options: insightOptions })
     },
-    [analysis, runTrends],
+    [analysis, runTrends, runInsights],
   )
 
   /** Cancel anything running and forget the results shown. Saved datasets are not affected. */
@@ -318,6 +371,7 @@ export function useCsvAnalysis() {
     retryMetrics,
     retryTrends,
     retryPerformance,
+    retryInsights,
     applyMapping,
     changeTrendOptions,
     changePerformanceOptions,

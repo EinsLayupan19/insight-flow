@@ -5,9 +5,17 @@ from pathlib import Path
 import pytest
 
 from app.analytics.retail_metrics import ColumnMappingError
+from app.analytics.insights import calculate_insights, resolve_insight_columns
 from app.analytics.product_performance import calculate_product_performance, resolve_performance_columns
 from app.analytics.sales_trends import calculate_sales_trends, resolve_trend_columns
-from app.datasets.models import AnalysisRequest, MetricsAnalysis, PerformanceAnalysis, ProfileAnalysis, TrendsAnalysis
+from app.datasets.models import (
+    AnalysisRequest,
+    InsightsAnalysis,
+    MetricsAnalysis,
+    PerformanceAnalysis,
+    ProfileAnalysis,
+    TrendsAnalysis,
+)
 from app.datasets.service import DatasetNotFoundError, DatasetService, display_name
 from app.ingestion.csv_parser import CsvValidationError, parse_csv
 from app.ingestion.profiler import profile_csv
@@ -139,6 +147,26 @@ def test_product_and_category_roles_only_apply_to_performance() -> None:
         AnalysisRequest(kind="performance", column_mapping={"order_date": "Day"})
     with pytest.raises(ValueError, match="grain only applies to kind 'trends'"):
         AnalysisRequest(kind="performance", grain="day")
+
+
+def test_insights_analysis_is_recorded_with_the_same_result_as_live_insights(service: DatasetService) -> None:
+    catalog = (FIXTURES / "catalog_sales.csv").read_bytes()
+    dataset_id = service.save_dataset("catalog_sales.csv", catalog).dataset.id
+    parsed = parse_csv(catalog)
+
+    record = service.run_analysis(dataset_id, AnalysisRequest(kind="insights", grain="day"))
+
+    assert isinstance(record, InsightsAnalysis)
+    assert record.grain == "day"
+    assert record.result == calculate_insights(parsed, resolve_insight_columns(parsed.columns, {}), "day")
+    assert service.get_analysis(dataset_id, record.id) == record
+
+
+def test_insights_accept_every_role_and_a_grain() -> None:
+    request = AnalysisRequest(kind="insights", column_mapping={"order_date": "Day", "product": "SKU", "category": "Dept"})
+
+    assert request.grain == "month"
+    assert AnalysisRequest(kind="insights", grain="week").grain == "week"
 
 
 def test_an_invalid_mapping_records_nothing(service: DatasetService) -> None:

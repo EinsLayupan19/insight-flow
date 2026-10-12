@@ -5,10 +5,19 @@
 // until the dataset is deleted.
 
 import { explicitMapping, type ColumnMapping, type RecordedColumnMapping } from '../lib/columnMapping'
+import { insightColumnMapping, type InsightOptions } from '../lib/insights'
 import { performanceColumnMapping, type PerformanceOptions } from '../lib/performance'
 import { trendColumnMapping, type TrendOptions } from '../lib/trends'
 import { isObject, requestJson, requestNoContent } from './http'
-import { csvForm, type Grain, type ProductPerformance, type QualityReport, type RetailMetrics, type SalesTrends } from './uploads'
+import {
+  csvForm,
+  type Grain,
+  type ProductPerformance,
+  type QualityReport,
+  type RetailMetrics,
+  type SalesInsights,
+  type SalesTrends,
+} from './uploads'
 
 // ---------- Response types (mirror backend/app/datasets/models.py) ----------
 
@@ -44,15 +53,17 @@ export type TrendsHighlights = { grain: Grain; period_count: number; calculated_
 /** null when that breakdown is unavailable (for example, the file has no category column). */
 export type PerformanceHighlights = { product_count: number | null; category_count: number | null }
 
-export type AnalysisKind = 'profile' | 'metrics' | 'trends' | 'performance'
-const ANALYSIS_KINDS: readonly unknown[] = ['profile', 'metrics', 'trends', 'performance'] satisfies AnalysisKind[]
+export type InsightsHighlights = { grain: Grain; finding_count: number; high_count: number; not_assessed_count: number }
+
+export type AnalysisKind = 'profile' | 'metrics' | 'trends' | 'performance' | 'insights'
+const ANALYSIS_KINDS: readonly unknown[] = ['profile', 'metrics', 'trends', 'performance', 'insights'] satisfies AnalysisKind[]
 
 type AnalysisBase = {
   id: number
   dataset_id: number
   created_at: string
   app_version: string
-  /** Explicit column choices. order_date appears for trends only; product and category for performance only. */
+  /** Explicit column choices. order_date appears for trends and insights; product and category for performance and insights. */
   column_mapping: RecordedColumnMapping
 }
 
@@ -62,13 +73,20 @@ export type AnalysisSummary = AnalysisBase &
     | { kind: 'metrics'; highlights: MetricsHighlights }
     | { kind: 'trends'; highlights: TrendsHighlights }
     | { kind: 'performance'; highlights: PerformanceHighlights }
+    | { kind: 'insights'; highlights: InsightsHighlights }
   )
 
 export type ProfileAnalysisRecord = AnalysisBase & { kind: 'profile'; result: QualityReport }
 export type MetricsAnalysisRecord = AnalysisBase & { kind: 'metrics'; result: RetailMetrics }
 export type TrendsAnalysisRecord = AnalysisBase & { kind: 'trends'; grain: Grain; result: SalesTrends }
 export type PerformanceAnalysisRecord = AnalysisBase & { kind: 'performance'; result: ProductPerformance }
-export type AnalysisRecord = ProfileAnalysisRecord | MetricsAnalysisRecord | TrendsAnalysisRecord | PerformanceAnalysisRecord
+export type InsightsAnalysisRecord = AnalysisBase & { kind: 'insights'; grain: Grain; result: SalesInsights }
+export type AnalysisRecord =
+  | ProfileAnalysisRecord
+  | MetricsAnalysisRecord
+  | TrendsAnalysisRecord
+  | PerformanceAnalysisRecord
+  | InsightsAnalysisRecord
 
 // ---------- Requests ----------
 
@@ -144,6 +162,17 @@ export function runPerformanceAnalysis(
   return requestJson(analysesUrl(datasetId), jsonPost(body), isPerformanceRecord, signal)
 }
 
+/** Find key insights in the stored file and record them. Only explicit column choices are sent. */
+export function runInsightsAnalysis(
+  datasetId: number,
+  mapping: ColumnMapping,
+  options: InsightOptions,
+  signal?: AbortSignal,
+): Promise<InsightsAnalysisRecord> {
+  const body = { kind: 'insights', grain: options.grain, column_mapping: insightColumnMapping(mapping, options) }
+  return requestJson(analysesUrl(datasetId), jsonPost(body), isInsightsRecord, signal)
+}
+
 function jsonPost(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
@@ -194,4 +223,8 @@ function isTrendsRecord(value: unknown): value is TrendsAnalysisRecord {
 
 function isPerformanceRecord(value: unknown): value is PerformanceAnalysisRecord {
   return isAnalysisRecord(value) && value.kind === 'performance'
+}
+
+function isInsightsRecord(value: unknown): value is InsightsAnalysisRecord {
+  return isAnalysisRecord(value) && value.kind === 'insights'
 }

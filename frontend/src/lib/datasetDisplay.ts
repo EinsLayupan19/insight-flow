@@ -10,6 +10,7 @@ export const ANALYSIS_TITLES = {
   metrics: 'Retail metrics',
   trends: 'Sales trends',
   performance: 'Product & category performance',
+  insights: 'Key findings',
 } as const
 
 /** One line describing an analysis' headline numbers. */
@@ -22,6 +23,13 @@ export function describeHighlights(analysis: AnalysisSummary): string {
       pluralize(missing_value_count, 'missing value'),
       pluralize(type_mismatch_count, 'type mismatch', 'type mismatches'),
     ].join(' · ')
+  }
+  if (analysis.kind === 'insights') {
+    const { finding_count, high_count, not_assessed_count } = analysis.highlights
+    const parts = [finding_count === 0 ? 'No findings' : pluralize(finding_count, 'finding')]
+    if (high_count > 0) parts.push(`${high_count} high`)
+    if (not_assessed_count > 0) parts.push(`${not_assessed_count} not assessed`)
+    return parts.join(' · ')
   }
   if (analysis.kind === 'performance') {
     const { product_count, category_count } = analysis.highlights
