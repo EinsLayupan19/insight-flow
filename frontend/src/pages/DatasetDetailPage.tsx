@@ -7,6 +7,7 @@ import type {
   PerformanceAnalysisRecord,
   TrendsAnalysisRecord,
 } from '../api/datasets'
+import { ActionMenu } from '../components/ActionMenu'
 import { ColumnMappingPanel } from '../components/ColumnMappingPanel'
 import { Callout, LoadingState, StatusBadge } from '../components/Feedback'
 import { Spinner } from '../components/Icons'
@@ -36,10 +37,10 @@ type DatasetDetailPageProps = {
 
 const RUNNING_TEXT: Record<DatasetAction, string> = {
   profile: 'Running a data-quality check on the stored file…',
-  metrics: 'Calculating retail metrics from the stored file…',
+  metrics: 'Calculating key numbers from the stored file…',
   trends: 'Calculating sales trends from the stored file…',
   performance: 'Ranking products and categories in the stored file…',
-  insights: 'Finding key insights in the stored file…',
+  insights: 'Looking for key findings in the stored file…',
   delete: 'Deleting the dataset…',
 }
 
@@ -67,7 +68,7 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
                     Try again
                   </button>
                   <a className="button-ghost" href={routeHref({ page: 'datasets' })}>
-                    Back to saved datasets
+                    Back to datasets
                   </a>
                 </>
               }
@@ -105,76 +106,73 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
       <section className="card dataset-header" aria-labelledby="dataset-heading">
         <div className="dataset-heading-row">
           <div className="results-title">
-            <p className="eyebrow">Saved dataset #{dataset.id}</p>
+            <p className="eyebrow">Dataset #{dataset.id}</p>
             <h1 id="dataset-heading">{dataset.filename}</h1>
             <p className="results-meta">
-              {pluralize(dataset.row_count, 'row')} · {pluralize(dataset.column_count, 'column')} ·{' '}
-              {formatBytes(dataset.size_bytes)} · saved {formatDateTime(dataset.created_at)}
+              {pluralize(dataset.row_count, 'row')}, {pluralize(dataset.column_count, 'column')}, {formatBytes(dataset.size_bytes)}.
+              Saved {formatDateTime(dataset.created_at)}.
             </p>
           </div>
           <div className="dataset-actions">
-            <button type="button" className="button-primary" disabled={!canAnalyze} onClick={() => void run({ kind: 'profile' })}>
-              Run data-quality check
-            </button>
-            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run({ kind: 'metrics', mapping: {} })}>
-              Calculate metrics
-            </button>
-            <button type="button" className="button-secondary" disabled={!canAnalyze} onClick={() => void run({ kind: 'trends', mapping: {}, options: DEFAULT_TREND_OPTIONS })}
-            >
-              Calculate trends
-            </button>
-            <button
-              type="button"
-              className="button-secondary"
+            {/* Each action records a new analysis from the stored file and opens it. */}
+            <ActionMenu
+              label="Run an analysis"
+              variant="primary"
               disabled={!canAnalyze}
-              onClick={() => void run({ kind: 'performance', mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS })}
-            >
-              Rank products
-            </button>
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={!canAnalyze}
-              onClick={() => void run({ kind: 'insights', mapping: {}, options: DEFAULT_INSIGHT_OPTIONS })}
-            >
-              Find insights
-            </button>
-            <button type="button" className="button-ghost danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
-              Delete dataset
-            </button>
+              actions={[
+                { label: 'Key findings', onSelect: () => void run({ kind: 'insights', mapping: {}, options: DEFAULT_INSIGHT_OPTIONS }) },
+                { label: 'Key numbers', onSelect: () => void run({ kind: 'metrics', mapping: {} }) },
+                { label: 'Sales trends', onSelect: () => void run({ kind: 'trends', mapping: {}, options: DEFAULT_TREND_OPTIONS }) },
+                {
+                  label: 'Products and categories',
+                  onSelect: () => void run({ kind: 'performance', mapping: {}, options: DEFAULT_PERFORMANCE_OPTIONS }),
+                },
+                { label: 'Data-quality check', onSelect: () => void run({ kind: 'profile' }) },
+              ]}
+            />
+            <ActionMenu
+              label="More"
+              variant="secondary"
+              align="end"
+              disabled={busy}
+              actions={[{ label: 'Delete dataset…', danger: true, onSelect: () => setConfirmingDelete(true) }]}
+            />
           </div>
         </div>
 
-        <dl className="dataset-facts">
-          <div>
-            <dt>Stored file</dt>
-            <dd>
-              {dataset.file_stored ? (
-                <StatusBadge tone="good">On the server's disk</StatusBadge>
-              ) : (
-                <StatusBadge tone="critical">Missing or changed</StatusBadge>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>SHA-256</dt>
-            <dd>
-              <code title={dataset.sha256}>{shortHash(dataset.sha256)}…</code>
-            </dd>
-          </div>
-          <div className="dataset-columns">
-            <dt>Columns</dt>
-            <dd>
-              <ul className="chip-list">
-                {dataset.columns.map((column) => (
-                  <li key={column}>
-                    <code>{column}</code>
-                  </li>
-                ))}
-              </ul>
-            </dd>
-          </div>
-        </dl>
+        <details className="disclosure file-details">
+          <summary>File details</summary>
+          <dl className="dataset-facts">
+            <div>
+              <dt>Stored file</dt>
+              <dd>
+                {dataset.file_stored ? (
+                  <StatusBadge tone="good">On the server's disk</StatusBadge>
+                ) : (
+                  <StatusBadge tone="critical">Missing or changed</StatusBadge>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>SHA-256</dt>
+              <dd>
+                <code title={dataset.sha256}>{shortHash(dataset.sha256)}…</code>
+              </dd>
+            </div>
+            <div className="dataset-columns">
+              <dt>Columns</dt>
+              <dd>
+                <ul className="chip-list">
+                  {dataset.columns.map((column) => (
+                    <li key={column}>
+                      <code>{column}</code>
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          </dl>
+        </details>
 
         {!dataset.file_stored && (
           <Callout tone="critical" title="The stored file is missing or has changed">
@@ -221,8 +219,7 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
           detail.analyses.status === 'loading' && <LoadingState>Loading the history…</LoadingState>
         ) : analyses.length === 0 ? (
           <p className="empty-state">
-            No analyses recorded yet. Run a data-quality check, calculate metrics or trends, rank products, or find
-            insights to start the history.
+            No analyses recorded yet. Choose <strong>Run an analysis</strong> above to start the history.
           </p>
         ) : (
           <HistoryList datasetId={dataset.id} analyses={analyses} selectedId={detail.selectedId} />
@@ -248,7 +245,7 @@ export function DatasetDetailPage({ datasetId, analysisId, onDeleted }: DatasetD
 function BackLink() {
   return (
     <p className="back-link">
-      <a href={routeHref({ page: 'datasets' })}>← All saved datasets</a>
+      <a href={routeHref({ page: 'datasets' })}>← All datasets</a>
     </p>
   )
 }

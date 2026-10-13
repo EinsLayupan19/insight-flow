@@ -101,6 +101,14 @@ export function FileIcon(props: IconProps) {
   )
 }
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Svg>
+  )
+}
+
 /** A spinning ring. Animation stops for people who prefer reduced motion (see index.css). */
 export function Spinner({ className }: { className?: string }) {
   return <span className={className ? `spinner ${className}` : 'spinner'} aria-hidden="true" />

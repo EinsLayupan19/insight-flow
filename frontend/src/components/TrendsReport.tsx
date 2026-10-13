@@ -30,7 +30,7 @@ type TrendsSectionProps = {
   onRetry: () => void
 }
 
-/** The trends card on the analysis page. Column choices from Retail metrics apply here too. */
+/** The trends card on the analysis page. Column choices from Choose columns (Summary tab) apply here too. */
 export function TrendsSection({ state, columns, options, onChangeOptions, onRetry }: TrendsSectionProps) {
   const data = latestData(state)
   const busy = state.status === 'loading'
@@ -38,7 +38,7 @@ export function TrendsSection({ state, columns, options, onChangeOptions, onRetr
   return (
     <section id="sales-trends" className="card section-card" aria-labelledby="trends-heading" aria-busy={busy}>
       <header className="section-header">
-        <h3 id="trends-heading">Sales trends</h3>
+        <h2 id="trends-heading">Sales trends</h2>
         <p>Revenue, orders, and average order value per period, from rows with a usable date.</p>
       </header>
 
@@ -60,7 +60,7 @@ export function TrendsSection({ state, columns, options, onChangeOptions, onRetr
       {data !== null ? (
         <TrendsView trends={data} columns={columns} options={options} busy={busy} onChangeOptions={onChangeOptions}>
           <p className="small muted">
-            Order ID, quantity, unit price, and revenue columns follow <strong>Map columns</strong> in Retail metrics.
+            Order ID, quantity, unit price, and revenue columns follow <strong>Choose columns</strong> in the Summary tab.
           </p>
         </TrendsView>
       ) : (
@@ -159,6 +159,7 @@ export function TrendsView({ trends, columns, options, busy, disabled = false, o
 
 type TrendControlsProps = { columns: string[]; options: TrendOptions; disabled: boolean; onChange: (options: TrendOptions) => void }
 
+/** Grouping is changed often, so it stays in view; the date column rarely, so it sits in a disclosure. */
 function TrendControls({ columns, options, disabled, onChange }: TrendControlsProps) {
   return (
     <div className="trend-controls">
@@ -180,22 +181,25 @@ function TrendControls({ columns, options, disabled, onChange }: TrendControlsPr
           ))}
         </div>
       </fieldset>
-      <div className="field">
-        <label htmlFor="trend-date-column">Date column</label>
-        <select
-          id="trend-date-column"
-          value={options.dateColumn}
-          disabled={disabled}
-          onChange={(event) => onChange({ ...options, dateColumn: event.target.value })}
-        >
-          <option value="">{columns.includes('order_date') ? 'Automatic (order_date)' : 'Automatic (no "order_date" column)'}</option>
-          {columns.map((column) => (
-            <option key={column} value={column}>
-              {column}
-            </option>
-          ))}
-        </select>
-      </div>
+      <details className="settings-disclosure">
+        <summary>Change the date column</summary>
+        <div className="field">
+          <label htmlFor="trend-date-column">Date column</label>
+          <select
+            id="trend-date-column"
+            value={options.dateColumn}
+            disabled={disabled}
+            onChange={(event) => onChange({ ...options, dateColumn: event.target.value })}
+          >
+            <option value="">{columns.includes('order_date') ? 'Automatic (order_date)' : 'Automatic (no "order_date" column)'}</option>
+            {columns.map((column) => (
+              <option key={column} value={column}>
+                {column}
+              </option>
+            ))}
+          </select>
+        </div>
+      </details>
     </div>
   )
 }

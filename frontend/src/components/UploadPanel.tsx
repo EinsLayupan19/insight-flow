@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent, type ReactNode } from 'react'
 import type { Analysis } from '../hooks/useCsvAnalysis'
 import { latestData } from '../lib/requestState'
 import type { FileSelection } from '../lib/files'
@@ -17,6 +17,8 @@ type UploadPanelProps = {
   onAnalyze: (file: File) => void
   onRetry: () => void
   onCancel: () => void
+  /** Shown at the bottom of the card (help and links). */
+  children?: ReactNode
 }
 
 export function UploadPanel({
@@ -29,6 +31,7 @@ export function UploadPanel({
   onAnalyze,
   onRetry,
   onCancel,
+  children,
 }: UploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const openPicker = () => inputRef.current?.click()
@@ -100,7 +103,7 @@ export function UploadPanel({
                     onChange={(event) => onSaveToLibraryChange(event.target.checked)}
                     aria-describedby="storage-choice-help"
                   />
-                  Save to the dataset library
+                  Save to my datasets
                 </label>
                 <p id="storage-choice-help" className="upload-note">
                   {saveToLibrary
@@ -155,6 +158,7 @@ export function UploadPanel({
           )}
         </>
       )}
+      {children}
     </section>
   )
 }

@@ -1,15 +1,20 @@
-import { routeHref, type Route } from '../lib/route'
+import { navSection, routeHref, type NavSection, type Route } from '../lib/route'
+
+const ITEMS: { section: NavSection; label: string; href: string }[] = [
+  { section: 'overview', label: 'Overview', href: routeHref({ page: 'overview' }) },
+  { section: 'datasets', label: 'Datasets', href: routeHref({ page: 'datasets' }) },
+  { section: 'analytics', label: 'Analytics', href: routeHref({ page: 'analytics' }) },
+]
 
 export function AppNav({ route }: { route: Route }) {
-  const inLibrary = route.page !== 'analyze'
+  const current = navSection(route)
   return (
     <nav className="app-nav" aria-label="Main">
-      <a href={routeHref({ page: 'analyze' })} aria-current={inLibrary ? undefined : 'page'}>
-        Analyze a file
-      </a>
-      <a href={routeHref({ page: 'datasets' })} aria-current={inLibrary ? 'page' : undefined}>
-        Saved datasets
-      </a>
+      {ITEMS.map((item) => (
+        <a key={item.section} href={item.href} aria-current={item.section === current ? 'page' : undefined}>
+          {item.label}
+        </a>
+      ))}
     </nav>
   )
 }

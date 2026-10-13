@@ -7,9 +7,9 @@ import { GRAIN_UNITS } from './trends'
 
 export const ANALYSIS_TITLES = {
   profile: 'Data-quality check',
-  metrics: 'Retail metrics',
+  metrics: 'Key numbers',
   trends: 'Sales trends',
-  performance: 'Product & category performance',
+  performance: 'Products and categories',
   insights: 'Key findings',
 } as const
 
@@ -21,14 +21,14 @@ export function describeHighlights(analysis: AnalysisSummary): string {
     return [
       pluralize(duplicate_row_count, 'duplicate row'),
       pluralize(missing_value_count, 'missing value'),
-      pluralize(type_mismatch_count, 'type mismatch', 'type mismatches'),
+      `${pluralize(type_mismatch_count, 'value')} in the wrong format`,
     ].join(' · ')
   }
   if (analysis.kind === 'insights') {
     const { finding_count, high_count, not_assessed_count } = analysis.highlights
     const parts = [finding_count === 0 ? 'No findings' : pluralize(finding_count, 'finding')]
     if (high_count > 0) parts.push(`${high_count} high`)
-    if (not_assessed_count > 0) parts.push(`${not_assessed_count} not assessed`)
+    if (not_assessed_count > 0) parts.push(`${pluralize(not_assessed_count, 'check')} couldn't run`)
     return parts.join(' · ')
   }
   if (analysis.kind === 'performance') {
@@ -44,7 +44,7 @@ export function describeHighlights(analysis: AnalysisSummary): string {
     return `${periods} · ${calculated_count} of ${calculated_count + unavailable_count} trends calculated`
   }
   const { calculated_count, unavailable_count } = analysis.highlights
-  return `${calculated_count} of ${calculated_count + unavailable_count} metrics calculated`
+  return `${calculated_count} of ${calculated_count + unavailable_count} key numbers calculated`
 }
 
 /** "Automatic column matching", or the explicit choices, e.g. "Quantity → Qty, Unit price → Price". */

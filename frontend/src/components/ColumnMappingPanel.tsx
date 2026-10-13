@@ -70,13 +70,13 @@ export function ColumnMappingPanel({ columns, applied, used, busy, showHint, onA
           aria-controls="column-mapping-form"
           onClick={() => setOpen((isOpen) => !isOpen)}
         >
-          {open ? 'Hide column mapping' : 'Map columns'}
+          {open ? 'Hide column choices' : 'Choose columns'}
         </button>
       </div>
 
       {showHint && !open && (
         <p className="mapping-hint">
-          Some metrics are unavailable. If your file uses different column names, choose them with <strong>Map columns</strong>.
+          Some metrics are unavailable. If your file uses different column names, pick them with <strong>Choose columns</strong>.
         </p>
       )}
 
@@ -125,7 +125,7 @@ export function ColumnMappingPanel({ columns, applied, used, busy, showHint, onA
 
           <div className="form-actions">
             <button type="submit" className="button-primary" disabled={!canApply}>
-              Apply mapping
+              Use these columns
             </button>
             <button type="button" className="button-ghost" disabled={busy || !hasExplicitChoices(draft)} onClick={() => setDraft({})}>
               Reset to automatic

@@ -32,13 +32,14 @@ export function MeasureEvidence({ measure }: { measure: Measured }) {
   return (
     <div className="measure-evidence">
       <Notes notes={measure.notes} tone="warning" />
-      <div className="metric-footer">
-        {measure.rows_included !== null && measure.rows_excluded !== null && (
-          <p>
-            Based on {formatCount(measure.rows_included)} of {pluralize(measure.rows_included + measure.rows_excluded, 'row')}
-            {measure.rows_excluded > 0 ? `, ${formatCount(measure.rows_excluded)} excluded` : ''}
-          </p>
-        )}
+      {measure.rows_included !== null && measure.rows_excluded !== null && (
+        <p className="metric-rows">
+          Based on {formatCount(measure.rows_included)} of {pluralize(measure.rows_included + measure.rows_excluded, 'row')}
+          {measure.rows_excluded > 0 ? `, ${formatCount(measure.rows_excluded)} excluded` : ''}
+        </p>
+      )}
+      <details className="metric-footer evidence-details">
+        <summary>How it's calculated</summary>
         {measure.columns_used.length > 0 && (
           <p className="metric-columns">
             <span className="muted">Columns used:</span>{' '}
@@ -50,7 +51,7 @@ export function MeasureEvidence({ measure }: { measure: Measured }) {
         <p className="metric-definition">
           <span className="muted">Definition:</span> {measure.definition}
         </p>
-      </div>
+      </details>
     </div>
   )
 }

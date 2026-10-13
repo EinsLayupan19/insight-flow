@@ -14,7 +14,11 @@ export default defineConfig({
     // The browser calls `/api/...` on the Vite server, and Vite forwards it
     // to FastAPI. No CORS setup needed, and no backend URL in frontend code.
     proxy: {
-      '/api': BACKEND_URL,
+      '/api': {
+        target: BACKEND_URL,
+        changeOrigin: false,
+      },
     },
   },
 })
+  

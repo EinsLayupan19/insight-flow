@@ -23,7 +23,7 @@ export function KeyFindingsSection({ state, onRetry }: KeyFindingsSectionProps) 
   return (
     <section id="key-findings" className="card section-card" aria-labelledby="findings-heading" aria-busy={busy}>
       <header className="section-header">
-        <h3 id="findings-heading">Key findings</h3>
+        <h2 id="findings-heading">Key findings</h2>
         <p>What the numbers show, with the figures behind each finding. Findings describe; they never explain why.</p>
       </header>
 
@@ -45,8 +45,8 @@ export function KeyFindingsSection({ state, onRetry }: KeyFindingsSectionProps) 
       {data !== null ? (
         <KeyFindingsView insights={data} busy={busy}>
           <p className="small muted">
-            Findings use the period and date column chosen in Sales trends, the columns chosen in Product &amp; category
-            performance, and <strong>Map columns</strong> in Retail metrics.
+            Findings use the period and date column chosen in Trends, the product and category columns chosen in
+            Products, and <strong>Choose columns</strong> below.
           </p>
         </KeyFindingsView>
       ) : (
@@ -88,7 +88,7 @@ export function KeyFindingsView({ insights, busy, children }: KeyFindingsViewPro
         {groups.length === 0 ? (
           <div className="empty-state trends-empty">
             <p className="empty-state-title">No findings to report</p>
-            <p>The checks below could not run on this file, or found nothing that stands out.</p>
+            <p>Nothing stands out in this file, or the checks below couldn't run on it.</p>
           </div>
         ) : (
           <ol className="findings-list">
@@ -102,7 +102,7 @@ export function KeyFindingsView({ insights, busy, children }: KeyFindingsViewPro
 
         {insights.not_assessed.length > 0 && (
           <details className="disclosure" open={groups.length === 0}>
-            <summary>Not assessed ({insights.not_assessed.length})</summary>
+            <summary>Checks that couldn't run ({insights.not_assessed.length})</summary>
             <ul className="not-assessed">
               {insights.not_assessed.map((check) => (
                 <li key={`${check.kind}-${check.title}`}>

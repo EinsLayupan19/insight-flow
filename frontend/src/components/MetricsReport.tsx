@@ -25,14 +25,14 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
   return (
     <section id="retail-metrics" className="card section-card" aria-labelledby="metrics-heading" aria-busy={busy}>
       <header className="section-header">
-        <h3 id="metrics-heading">Retail metrics</h3>
-        <p>Calculated with DuckDB, only from columns the file actually has. Each metric shows its definition and the rows it used.</p>
+        <h2 id="metrics-heading">Key numbers</h2>
+        <p>Calculated only from columns the file actually has. Each number shows the rows it used and how it is calculated.</p>
       </header>
 
       {state.status === 'error' && (
         <Callout
           tone="critical"
-          title={data ? 'The metrics could not be updated' : 'The metrics could not be calculated'}
+          title={data ? 'The key numbers could not be updated' : 'The key numbers could not be calculated'}
           action={
             <button type="button" className="button-secondary" onClick={onRetry}>
               Try again
@@ -40,7 +40,7 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
           }
         >
           {state.message}
-          {data && ' The metrics below are from the last successful calculation.'}
+          {data && ' The numbers below are from the last successful calculation.'}
         </Callout>
       )}
 
@@ -56,7 +56,7 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
           />
           {busy && (
             <p className="updating-note" role="status">
-              <Spinner /> Recalculating metrics…
+              <Spinner /> Recalculating key numbers…
             </p>
           )}
           {/* While recalculating, the previous results stay visible but dimmed. */}
@@ -65,7 +65,7 @@ export function MetricsSection({ state, columns, appliedMapping, onApplyMapping,
           </div>
         </>
       ) : (
-        state.status !== 'error' && <LoadingState>Calculating retail metrics…</LoadingState>
+        state.status !== 'error' && <LoadingState>Calculating key numbers…</LoadingState>
       )}
     </section>
   )

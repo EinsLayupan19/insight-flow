@@ -1,7 +1,7 @@
 import type { DatasetSummary } from '../api/datasets'
 import { Callout, LoadingState } from '../components/Feedback'
 import { useDatasetList } from '../hooks/useDatasets'
-import { formatBytes, formatCount, formatDateTime } from '../lib/format'
+import { formatBytes, formatCount, formatDateTime, pluralize } from '../lib/format'
 import { latestData } from '../lib/requestState'
 import { datasetHref, routeHref } from '../lib/route'
 
@@ -18,8 +18,8 @@ export function DatasetsPage({ notice, onDismissNotice }: DatasetsPageProps) {
   return (
     <>
       <section className="intro">
-        <h1>Saved datasets</h1>
-        <p>Files saved to the dataset library, each with the history of analyses run on it.</p>
+        <h1>Datasets</h1>
+        <p>Files you saved, each with the history of the analyses run on it.</p>
       </section>
 
       {notice && (
@@ -37,14 +37,14 @@ export function DatasetsPage({ notice, onDismissNotice }: DatasetsPageProps) {
 
       <section className="card" aria-labelledby="library-heading" aria-busy={loading}>
         <div className="card-header">
-          <h2 id="library-heading">Library{datasets ? ` (${formatCount(datasets.length)})` : ''}</h2>
+          <h2 id="library-heading">Saved files{datasets ? ` (${formatCount(datasets.length)})` : ''}</h2>
           <button type="button" className="button-secondary" onClick={reload} disabled={loading}>
             Refresh
           </button>
         </div>
         <p className="storage-note">
-          Saved files are kept on the InsightFlow server's own disk, and their details and analysis results in a SQLite
-          database next to them. They stay until you delete them. Nothing is backed up or sent anywhere else.
+          Saved files and their analysis results are kept on the InsightFlow server until you delete them. Nothing is
+          backed up or sent anywhere else.
         </p>
 
         {state.status === 'error' && (
@@ -78,11 +78,11 @@ function EmptyLibrary() {
     <div className="empty-panel">
       <p className="empty-title">No saved datasets yet</p>
       <p>
-        Analyze a file with <strong>Save to the dataset library</strong> checked, and it appears here with its analysis
-        history.
+        Upload a file on the Overview with <strong>Save to my datasets</strong> checked, and it appears here with its
+        analysis history.
       </p>
-      <a className="button-primary" href={routeHref({ page: 'analyze' })}>
-        Analyze a file
+      <a className="button-primary" href={routeHref({ page: 'overview' })}>
+        Upload a file
       </a>
     </div>
   )
@@ -93,17 +93,16 @@ function DatasetTable({ datasets }: { datasets: DatasetSummary[] }) {
     <>
       <p className="table-hint small muted">Scroll the table sideways to see every column.</p>
       <div className="table-scroll" role="region" aria-labelledby="library-heading" tabIndex={0}>
-        <table className="data-table">
+        <table className="data-table dataset-table">
           <caption className="sr-only">Saved datasets, newest first</caption>
           <thead>
             <tr>
               <th scope="col">Dataset</th>
-              <th scope="col">Rows</th>
-              <th scope="col">Columns</th>
-              <th scope="col">Size</th>
+              <th scope="col" className="numeric">
+                Rows
+              </th>
               <th scope="col">Saved</th>
               <th scope="col">Analyses</th>
-              <th scope="col">Last analysis</th>
             </tr>
           </thead>
           <tbody>
@@ -113,14 +112,18 @@ function DatasetTable({ datasets }: { datasets: DatasetSummary[] }) {
                   <a className="dataset-link" href={datasetHref(dataset.id)}>
                     {dataset.filename}
                   </a>
-                  <span className="dataset-id">#{dataset.id}</span>
+                  <span className="dataset-id">
+                    #{dataset.id}, {pluralize(dataset.column_count, 'column')}, {formatBytes(dataset.size_bytes)}
+                  </span>
                 </th>
-                <td className="num">{formatCount(dataset.row_count)}</td>
-                <td className="num">{formatCount(dataset.column_count)}</td>
-                <td className="num">{formatBytes(dataset.size_bytes)}</td>
+                <td className="numeric num">{formatCount(dataset.row_count)}</td>
                 <td>{formatDateTime(dataset.created_at)}</td>
-                <td className="num">{formatCount(dataset.analysis_count)}</td>
-                <td>{dataset.last_analyzed_at ? formatDateTime(dataset.last_analyzed_at) : <span className="muted">Never</span>}</td>
+                <td>
+                  <span className="num">{formatCount(dataset.analysis_count)}</span>
+                  <span className="dataset-id">
+                    {dataset.last_analyzed_at ? `Last ${formatDateTime(dataset.last_analyzed_at)}` : 'None yet'}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>

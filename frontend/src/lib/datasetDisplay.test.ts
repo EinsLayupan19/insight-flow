@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AnalysisSummary } from '../api/datasets'
-import { describeHighlights, describeMapping, selectedAnalysisId, shortHash } from './datasetDisplay'
+import { ANALYSIS_TITLES, describeHighlights, describeMapping, selectedAnalysisId, shortHash } from './datasetDisplay'
 
 const base = { dataset_id: 1, created_at: '2026-10-11T09:12:00.000+00:00', app_version: '0.1.0', column_mapping: {} }
 
@@ -17,10 +17,22 @@ function metrics(id: number, calculated: number, unavailable: number): AnalysisS
   return { ...base, id, kind: 'metrics', highlights: { calculated_count: calculated, unavailable_count: unavailable } }
 }
 
+describe('ANALYSIS_TITLES', () => {
+  it('names each kind of analysis in plain words', () => {
+    expect(ANALYSIS_TITLES).toEqual({
+      profile: 'Data-quality check',
+      metrics: 'Key numbers',
+      trends: 'Sales trends',
+      performance: 'Products and categories',
+      insights: 'Key findings',
+    })
+  })
+})
+
 describe('describeHighlights', () => {
   it('summarizes a data-quality check', () => {
-    expect(describeHighlights(profile(1, 1, 5, 3))).toBe('1 duplicate row · 5 missing values · 3 type mismatches')
-    expect(describeHighlights(profile(1, 0, 1, 1))).toBe('0 duplicate rows · 1 missing value · 1 type mismatch')
+    expect(describeHighlights(profile(1, 1, 5, 3))).toBe('1 duplicate row · 5 missing values · 3 values in the wrong format')
+    expect(describeHighlights(profile(1, 0, 1, 1))).toBe('0 duplicate rows · 1 missing value · 1 value in the wrong format')
   })
 
   it('says "No findings" when the check found nothing', () => {
@@ -28,7 +40,7 @@ describe('describeHighlights', () => {
   })
 
   it('summarizes a metrics calculation', () => {
-    expect(describeHighlights(metrics(2, 1, 4))).toBe('1 of 5 metrics calculated')
+    expect(describeHighlights(metrics(2, 1, 4))).toBe('1 of 5 key numbers calculated')
   })
 })
 
@@ -56,9 +68,9 @@ describe('describeHighlights for insights', () => {
       highlights: { grain: 'month', finding_count, high_count, not_assessed_count },
     })
 
-    expect(describeHighlights(insights(4, 2, 3))).toBe('4 findings · 2 high · 3 not assessed')
+    expect(describeHighlights(insights(4, 2, 3))).toBe("4 findings · 2 high · 3 checks couldn't run")
     expect(describeHighlights(insights(1, 0, 0))).toBe('1 finding')
-    expect(describeHighlights(insights(0, 0, 5))).toBe('No findings · 5 not assessed')
+    expect(describeHighlights(insights(0, 0, 5))).toBe("No findings · 5 checks couldn't run")
   })
 })
 

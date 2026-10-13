@@ -61,7 +61,8 @@ export function MetricCard({ id, metric, presentation }: MetricCardProps) {
         </ul>
       )}
 
-      <div className="metric-footer">
+      <details className="metric-footer evidence-details">
+        <summary>How it's calculated</summary>
         {metric.columns_used.length > 0 && (
           <p className="metric-columns">
             <span className="muted">Columns used:</span>{' '}
@@ -73,7 +74,7 @@ export function MetricCard({ id, metric, presentation }: MetricCardProps) {
         <p className="metric-definition">
           <span className="muted">Definition:</span> {metric.definition}
         </p>
-      </div>
+      </details>
     </article>
   )
 }
@@ -84,7 +85,7 @@ function RowsUsed({ metric }: { metric: MetricResult }) {
   return (
     <p className="metric-rows">
       Based on {formatCount(metric.rows_included)} of {pluralize(total, 'row')}
-      {metric.rows_excluded > 0 ? ` · ${formatCount(metric.rows_excluded)} excluded` : ''}
+      {metric.rows_excluded > 0 ? `, ${formatCount(metric.rows_excluded)} excluded` : ''}
     </p>
   )
 }

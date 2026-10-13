@@ -33,7 +33,7 @@ type PerformanceSectionProps = {
   onRetry: () => void
 }
 
-/** The performance card on the analysis page. Column choices from Retail metrics apply here too. */
+/** The performance card on the analysis page. Column choices from Choose columns (Summary tab) apply here too. */
 export function PerformanceSection({ state, columns, options, onChangeOptions, onRetry }: PerformanceSectionProps) {
   const data = latestData(state)
   const busy = state.status === 'loading'
@@ -41,7 +41,7 @@ export function PerformanceSection({ state, columns, options, onChangeOptions, o
   return (
     <section id="product-performance" className="card section-card" aria-labelledby="performance-heading" aria-busy={busy}>
       <header className="section-header">
-        <h3 id="performance-heading">Product &amp; category performance</h3>
+        <h2 id="performance-heading">Products and categories</h2>
         <p>Revenue, quantity, and orders for each product and category, ranked. Labels are never merged or guessed.</p>
       </header>
 
@@ -63,7 +63,7 @@ export function PerformanceSection({ state, columns, options, onChangeOptions, o
       {data !== null ? (
         <PerformanceView performance={data} columns={columns} options={options} busy={busy} onChangeOptions={onChangeOptions}>
           <p className="small muted">
-            Order ID, quantity, unit price, and revenue columns follow <strong>Map columns</strong> in Retail metrics.
+            Order ID, quantity, unit price, and revenue columns follow <strong>Choose columns</strong> in the Summary tab.
           </p>
         </PerformanceView>
       ) : (
@@ -153,11 +153,15 @@ function LabelControls({ columns, options, disabled, onChange }: LabelControlsPr
       </select>
     </div>
   )
+  // Changed rarely, so the selects sit in a disclosure; the coverage line below names the column in use.
   return (
-    <div className="trend-controls">
-      {select('performance-product-column', 'Product column', 'product', options.productColumn, (column) => ({ ...options, productColumn: column }))}
-      {select('performance-category-column', 'Category column', 'category', options.categoryColumn, (column) => ({ ...options, categoryColumn: column }))}
-    </div>
+    <details className="settings-disclosure">
+      <summary>Change the product and category columns</summary>
+      <div className="trend-controls">
+        {select('performance-product-column', 'Product column', 'product', options.productColumn, (column) => ({ ...options, productColumn: column }))}
+        {select('performance-category-column', 'Category column', 'category', options.categoryColumn, (column) => ({ ...options, categoryColumn: column }))}
+      </div>
+    </details>
   )
 }
 
@@ -195,8 +199,8 @@ function BreakdownView({ breakdown, performance }: { breakdown: Breakdown; perfo
         </div>
         {breakdown.remaining !== null && (
           <p className="small muted">
-            Ranked by the API only: with {formatCount(breakdown.remaining.group_count)} more {names.plural} summarized, other rankings
-            could miss the real top ones.
+            Only this ranking is offered: with {formatCount(breakdown.remaining.group_count)} more {names.plural} summarized, other
+            rankings could miss the real top ones.
           </p>
         )}
       </div>

@@ -18,7 +18,7 @@ export function QualitySection({ state, onRetry }: QualitySectionProps) {
   return (
     <section id="data-quality" className="card section-card" aria-labelledby="quality-heading" aria-busy={state.status === 'loading'}>
       <header className="section-header">
-        <h3 id="quality-heading">Data quality</h3>
+        <h2 id="quality-heading">Data quality</h2>
         <p>What the checks found in the file as uploaded. Findings are reported, never fixed or removed.</p>
       </header>
 
@@ -74,7 +74,7 @@ export function QualityReportView({ report }: { report: QualityReport }) {
           detail={`in ${pluralize(withMissing.length, 'column')}`}
         />
         <StatTile
-          label="Type mismatches"
+          label="Values in the wrong format"
           value={formatCount(sum(withMismatches.map((column) => column.mismatch_count)))}
           detail={`in ${pluralize(withMismatches.length, 'column')}`}
         />
@@ -87,7 +87,7 @@ export function QualityReportView({ report }: { report: QualityReport }) {
         </Callout>
       ) : (
         <Callout tone="good" title="No issues found by these checks">
-          No missing values, duplicate rows, or type mismatches. The checks are defined at the end of this section.
+          No missing values, duplicate rows, or values in the wrong format. The checks are defined at the end of this section.
         </Callout>
       )}
 
@@ -165,7 +165,7 @@ function ColumnTable({ columns }: { columns: ColumnProfile[] }) {
                   <th scope="col">Column</th>
                   <th scope="col">Inferred type</th>
                   <th scope="col">Missing values</th>
-                  <th scope="col">Type mismatches</th>
+                  <th scope="col">Wrong format</th>
                   <th scope="col">Values by type</th>
                   <th scope="col">Status</th>
                 </tr>
@@ -236,7 +236,7 @@ function MismatchCell({ column }: { column: ColumnProfile }) {
   return (
     <div className="mismatch-cell">
       <span className="num">{formatCount(column.mismatch_count)}</span>
-      <ul className="example-list" aria-label={`Mismatched values in ${column.name}`}>
+      <ul className="example-list" aria-label={`Values in the wrong format in ${column.name}`}>
         {column.mismatch_examples.map((example) => (
           <li key={example.line}>
             Line {example.line}: <code className="cell-value">{example.value}</code>
